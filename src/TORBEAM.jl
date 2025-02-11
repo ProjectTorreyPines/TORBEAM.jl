@@ -36,7 +36,6 @@ using Interpolations
                 # from libtorbeam/src/libsrc/dimensions.f90 -> Could be moved to a torbeam.yaml (?)
         # Define sizes of various arrays. Need to allocate them here to then pass to TORBEAM
 
-        # COUNT NUMBER OF INPUT BEAMS (EVEN THOSE WITH NO POWER)
         nbeam = length(dd.ec_launchers.beam)
         if nbeam < 1
             println("No beams - returning")
@@ -239,7 +238,7 @@ using Interpolations
 
                 # CALL TORBEAM
                 ccall(
-                    (:beam_, get(ENV, "TORBEAM_DIR", "") * "../lib/libtorbeamC1.so"),    # Name in the shared library (append `_`)
+                    (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamC1.so"),    # Name in the shared library (append `_`)
                     Cvoid,                             # Return type
                     (Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, # Inputs
                      Ptr{Float64}, Ref{Cint}, Ptr{Float64}, Ptr{Float64}, Ref{Cint},
