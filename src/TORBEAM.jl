@@ -202,12 +202,10 @@ using Interpolations
                 floatinbeam[1] = @ddtime(dd.ec_launchers.beam[ibeam].frequency.data)  # (xf)
                 # floatinbeam[2] = rad2deg(-@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor))
                 # floatinbeam[3] = rad2deg(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
-                beta  = -@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
-                alpha =  @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
-                xpoldeg = rad2deg(asin(cos(beta)*sin(alpha)))
-                xtordeg = rad2deg(atan(tan(beta)/cos(alpha)))
-                floatinbeam[2]  = xtordeg
-                floatinbeam[3]  = xpoldeg
+                phi_tor  = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
+                theta_pol =  @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
+                floatinbeam[2]  = -np.rad2deg(np.arcsin(np.cos(theta_pol)*np.sin(phi_tor)))
+                floatinbeam[3]  = np.rad2deg(np.arctan2(np.tan(theta_pol), np.cos(phi_tor)))
                 floatinbeam[4] = 1.e2*dd.ec_launchers.beam[ibeam].launching_position.r[1] * cos(0)  # (xxb)
                 floatinbeam[5] = 1.e2*dd.ec_launchers.beam[ibeam].launching_position.r[1] * sin(0)  # (xyb)
                 floatinbeam[6] = 1.e2*dd.ec_launchers.beam[ibeam].launching_position.z[1]  # (xzb)
