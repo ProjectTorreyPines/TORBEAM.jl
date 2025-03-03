@@ -1,6 +1,8 @@
 module TORBEAM
 using IMAS
 using Interpolations
+using Plots
+
 
     @Base.kwdef struct TorbeamParams
         npow = 1
@@ -15,6 +17,7 @@ using Interpolations
         nprofcalc = 1
         ncdharm = 1
         nrel = 0
+        n_ray = 5
 
         #Float parameters
         xrtol = 1e-07
@@ -90,7 +93,7 @@ using Interpolations
 
         # Interpolator for psi -> rho-tor need that later
         eq1d = dd.equilibrium.time_slice[].profiles_1d
-        rho_tor_interpolator = Interpolations.linear_interpolation(eq1d.psi, eq1d.rho_tor_norm)
+        rho_tor_norm_interpolator = Interpolations.linear_interpolation(eq1d.psi, eq1d.rho_tor_norm)
 
         psiedge = dd.equilibrium.time_slice[].global_quantities.psi_boundary
         psiax = dd.equilibrium.time_slice[].global_quantities.psi_axis
@@ -200,12 +203,18 @@ using Interpolations
                 #floatinbeam(6:13):  analytic --> not filled)
                 #floatinbeam(26:32): analytic --> not filled)
                 floatinbeam[1] = @ddtime(dd.ec_launchers.beam[ibeam].frequency.data)  # (xf)
-                # floatinbeam[2] = rad2deg(-@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor))
+                # floatinbeam[2] = -rad2deg(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor))
                 # floatinbeam[3] = rad2deg(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
+                # TODO fix when OMAS is updated
                 phi_tor  = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
-                theta_pol =  @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
-                floatinbeam[2]  = -rad2deg(asin(cos(theta_pol)*sin(phi_tor)))
-                floatinbeam[3]  = rad2deg(atan(tan(theta_pol), cos(phi_tor)))
+                theta_pol = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
+
+                floatinbeam[2]  = rad2deg(phi_tor)
+                floatinbeam[3]  = rad2deg(theta_pol)
+
+                # floatinbeam[2]  = rad2deg(asin(cos(theta_pol)*sin(phi_tor)))
+                # floatinbeam[3]  = rad2deg(atan(tan(theta_pol), cos(phi_tor)))
+                
                 floatinbeam[4] = 1.e2*dd.ec_launchers.beam[ibeam].launching_position.r[1] * cos(0)  # (xxb)
                 floatinbeam[5] = 1.e2*dd.ec_launchers.beam[ibeam].launching_position.r[1] * sin(0)  # (xyb)
                 floatinbeam[6] = 1.e2*dd.ec_launchers.beam[ibeam].launching_position.z[1]  # (xzb)
@@ -236,7 +245,7 @@ using Interpolations
 
                 # CALL TORBEAM
                 ccall(
-                    (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamC1.so"),    # Name in the shared library (append `_`)
+                    (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamB.so"),    # Name in the shared library (append `_`)
                     Cvoid,                             # Return type
                     (Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, # Inputs
                      Ptr{Float64}, Ref{Cint}, Ptr{Float64}, Ptr{Float64}, Ref{Cint},
@@ -382,8 +391,8 @@ using Interpolations
             resize!(dd.waves.coherent_wave[ibeam].profiles_1d, 1)
             dd.waves.coherent_wave[ibeam].profiles_1d[1].time = @ddtime(dd.equilibrium.time)
             psi_beam = profout[ibeam, 1, 1:npnt].^2*(psiedge-psiax).+psiax
-            rho_tor_beam = rho_tor_interpolator(psi_beam)
-            dd.waves.coherent_wave[ibeam].profiles_1d[].grid.rho_tor_norm = rho_tor_beam
+            rho_tor_norm_beam = rho_tor_norm_interpolator(psi_beam)
+            dd.waves.coherent_wave[ibeam].profiles_1d[].grid.rho_tor_norm = rho_tor_norm_beam
             dd.waves.coherent_wave[ibeam].profiles_1d[].grid.psi = psi_beam
             dd.waves.coherent_wave[ibeam].profiles_1d[].power_density = 1.e6*profout[ibeam, 2, 1:npnt]
             dd.waves.coherent_wave[ibeam].profiles_1d[].electrons.power_density_thermal = 1.e6*profout[ibeam, 2, 1:npnt]
@@ -403,13 +412,14 @@ using Interpolations
                                                 # LOOP OVER RAYS
             resize!(dd.waves.coherent_wave[ibeam].beam_tracing, 1)
             dd.waves.coherent_wave[ibeam].beam_tracing[1].time = @ddtime(dd.equilibrium.time)
-            resize!(dd.waves.coherent_wave[ibeam].beam_tracing[].beam,5) # Five beams/per gyrotron
+            resize!(dd.waves.coherent_wave[ibeam].beam_tracing[].beam,torbeam_params.n_ray) # Max. five beams/per gyrotron
             iend[] = min(npointsout[ibeam], ntraj)
-            if (dd.ec_launchers.beam[ibeam].power_launched.data[1] > 0)
-                for iray = 1:5 # 5 rays (to not mix with input beams)
+            if (@ddtime(dd.ec_launchers.beam[ibeam].power_launched.data) > 0)
+                for iray = 1:torbeam_params.n_ray # Max 5 rays (to not mix with input beams)
                     r = 1.e-2*trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                     z = 1.e-2*trajout[ibeam, 2+3*(iray-1), 1:iend[]]
-                    phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ dd.ec_launchers.beam[ibeam].launching_position.phi[1]
+                    # TODO fix when OMAS is updated
+                    phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .- (dd.ec_launchers.beam[ibeam].launching_position.phi[1] + pi / 2.0)
                     x = cos.(phi) .* r
                     y = sin.(phi) .* r
                     s = zeros(Float64, iend[])
@@ -430,5 +440,32 @@ using Interpolations
         end # LOOP OVER BEAMS (LAUNCHERS)
         dd.waves.code.output_flag = zeros(Int64,0) # NO ERROR
 
-    end 
+    end
+
+    function overview_plot(dd, d3d=false)
+        p_rz = plot()
+        p_xy = plot()
+        p_prof = plot(layout=(2,1))
+        plot!(p_rz, dd.equilibrium.time_slice[], cx=true)
+
+        phi = LinRange(0.0, 2.0 * pi, 200)
+        ipsi = findmin(abs.(dd.equilibrium.time_slice[].profiles_1d.psi .- 1.0))[2]
+        x_inboard = dd.equilibrium.time_slice[].profiles_1d.r_inboard[ipsi] .* cos.(phi)
+        y_inboard = dd.equilibrium.time_slice[].profiles_1d.r_inboard[ipsi] .* sin.(phi)
+        x_outboard = dd.equilibrium.time_slice[].profiles_1d.r_outboard[ipsi] .* cos.(phi)
+        y_outboard = dd.equilibrium.time_slice[].profiles_1d.r_outboard[ipsi] .* sin.(phi)
+        plot!(p_xy, x_inboard, y_inboard, cx=true)
+        plot!(p_xy, x_outboard, y_outboard, cx=true)
+
+        for ibeam=1:length(dd.waves.coherent_wave)
+            plot!(p_rz, dd.waves.coherent_wave[ibeam])
+            plot!(p_xy, dd.waves.coherent_wave[ibeam], top=true, d3d=d3d)
+            plot!(p_prof, dd.waves.coherent_wave[ibeam].profiles_1d)
+        end
+        savefig(p_rz, "Plots/TORBEAM_rz.pdf")
+        savefig(p_xy, "Plots/TORBEAM_xy.pdf")
+        savefig(p_prof, "Plots/TORBEAM_profiles.pdf")
+        return p_rz, p_xy, p_prof
+    end
 end # module TORBEAM
+
