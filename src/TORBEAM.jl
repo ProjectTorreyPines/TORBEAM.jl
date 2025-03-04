@@ -4,24 +4,26 @@ using Interpolations
 
 Base.@kwdef struct TorbeamParams
     # switches
-    npow = 1
-    ncd = 1
-    ncdroutine = 2
-    nprofv = 50
-    noout = 0
-    nrela = 1
-    nmaxh = 3
-    nabsroutine = 1
-    nastra = 0
-    nprofcalc = 1
-    ncdharm = 1
-    nrel = 0
+    npow::Int = 1
+    ncd::Int = 1
+    ncdroutine::Int = 2
+    nprofv::Int = 50
+    noout::Int = 0
+    nrela::Int = 1
+    nmaxh::Int = 3
+    nabsroutine::Int = 1
+    nastra::Int = 0
+    nprofcalc::Int = 1
+    ncdharm::Int = 1
+    nrel::Int = 0
+    n_ray::Int = 5
+    verbose::Bool = true
     #Float parameters
-    xrtol = 1e-07
-    xatol = 1e-07
-    xstep = 2.0
-    rhostop = 0.96
-    xzsrch = 0
+    xrtol::Float64 = 1e-07
+    xatol::Float64 = 1e-07
+    xstep::Float64 = 2.0
+    rhostop::Float64 = 0.96
+    xzsrch::Float64 = 0.0
 end
 
 
@@ -219,7 +221,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             floatinbeam[24] = @ddtime(beam.power_launched.data) * 1.e-6  # (xpw0)
             floatinbeam[25] = eqt.boundary.geometric_axis.r * 1e2  # (xrmaj)
             floatinbeam[26] = eqt.boundary.minor_radius * 1e2  # (xrmin)
-            floatinbeam[27] = eqt.vacuum_toroidal_field.b0
+            floatinbeam[27] = eqt.global_quantities.vacuum_toroidal_field.b0
             floatinbeam[34] = sgnm  # (deduced from psi_ed-psi_ax)
             floatinbeam[35] = cp1d.zeff[1]  # (xzeff)
             floatinbeam[36] = torbeam_params.rhostop  # keep
@@ -229,16 +231,29 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             @debug("Input power beam: ", ibeam, " ", @ddtime(beam.power_launched.data) * 1.e-6, " MW")
 
             # CALL TORBEAM
-            ccall(
-                (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamB.so"),    # Name in the shared library (append `_`)
-                Cvoid,                             # Return type
-                (Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, # Inputs
-                    Ptr{Float64}, Ref{Cint}, Ptr{Float64}, Ptr{Float64}, Ref{Cint},
-                    Ptr{Float64}, Ptr{Float64}, Ref{Cint}, Ref{Cint}, Ref{Cdouble}, Ptr{Float64}), # Argument types
-                intinbeam, floatinbeam, ni, nj, eqdata, npsi, npsi, prdata,
-                rhoresult, iend, t1data, t1tdata, kend,
-                t2data, t2ndata, icnt, ibgout, torbeam_params.nprofv, volprof
-            )
+            function invoke_ccall()
+                return ccall(
+                    (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamB.so"),    # Name in the shared library (append `_`)
+                    Cvoid,                             # Return type
+                    (Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, # Inputs
+                        Ptr{Float64}, Ref{Cint}, Ptr{Float64}, Ptr{Float64}, Ref{Cint},
+                        Ptr{Float64}, Ptr{Float64}, Ref{Cint}, Ref{Cint}, Ref{Cdouble}, Ptr{Float64}), # Argument types
+                    intinbeam, floatinbeam, ni, nj, eqdata, npsi, npsi, prdata,
+                    rhoresult, iend, t1data, t1tdata, kend,
+                    t2data, t2ndata, icnt, ibgout, torbeam_params.nprofv, volprof
+                )
+            end
+
+            if torbeam_params.verbose
+                invoke_ccall()
+            else
+                redirect_stdout(devnull) do
+                    redirect_stderr(devnull) do
+                        return invoke_ccall()
+                    end
+                end
+            end
+
             @debug(rhoresult[19])
             # --------------------------------------------------------------------------------------------------
             # Result structures:
@@ -319,7 +334,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 # 3rd ray
                 trajout[ibeam, 7, lfd] = t1data[4*iend[]+lfd]
                 trajout[ibeam, 8, lfd] = t1data[5*iend[]+lfd]
-                trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd],t1data[lfd])
+                trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd], t1data[lfd])
                 # 4th ray
                 trajout[ibeam, 10, lfd] = sqrt(t1tdata[2*iend[]+lfd]^2 + t1tdata[3*iend[]+lfd]^2)
                 trajout[ibeam, 11, lfd] = t1data[iend[]+lfd]
@@ -403,7 +418,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
     end # LOOP OVER BEAMS (LAUNCHERS)
 
-    return dd.waves.code.output_flag = 0 # NO ERROR
+    return @ddtime(dd.waves.code.output_flag = 0) # NO ERROR
 end
 
 const document = Dict()
