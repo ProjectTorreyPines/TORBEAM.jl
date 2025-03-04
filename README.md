@@ -20,4 +20,4 @@ Outputs are stored in the `waves` and the `core_sources` IDS.
 
 ## Usage instructions for Omega
 
-Load the TORBEAM module with `module load torbeam` before using it: 
+Load the TORBEAM module with `module load torbeam` before using it.
