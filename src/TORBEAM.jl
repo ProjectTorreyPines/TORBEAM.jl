@@ -28,8 +28,6 @@ end
 function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     # TORBEAM subroutine in IMAS
     #----------------------------
-    # TORBEAM subroutine in IMAS
-    #----------------------------
 
     # Define parameters
     # from libtorbeam/src/libsrc/dimensions.f90 -> Could be moved to a torbeam.yaml (?)
@@ -37,9 +35,10 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
     nbeam = length(dd.ec_launchers.beam)
     if nbeam < 1
-        println("No beams - returning")
+        @debug("No beams - returning")
         return
     end
+
     maxint = 50
     maxflt = 50
     maxrhr = 20
@@ -65,8 +64,6 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     kend = Ref{Int32}(0)
     icnt = Ref{Int32}(0)
     ibgout = Ref{Int32}(0)
-
-
 
     # Allocate output arrays
     t1data = zeros(Float64, 6 * ndat)
@@ -230,8 +227,8 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             floatinbeam[36] = torbeam_params.rhostop  # keep
             floatinbeam[37] = torbeam_params.xzsrch  # keep
 
-            println("------------------------------------------------------------")
-            println("Input power beam: ", ibeam, " ", @ddtime(dd.ec_launchers.beam[ibeam].power_launched.data) * 1.e-6, " MW")
+            @debug("------------------------------------------------------------")
+            @debug("Input power beam: ", ibeam, " ", @ddtime(dd.ec_launchers.beam[ibeam].power_launched.data) * 1.e-6, " MW")
 
             # CALL TORBEAM
             ccall(
@@ -244,7 +241,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 rhoresult, iend, t1data, t1tdata, kend,
                 t2data, t2ndata, icnt, ibgout, torbeam_params.nprofv, volprof
             )
-            println(rhoresult[19])
+            @debug(rhoresult[19])
             # --------------------------------------------------------------------------------------------------
             # Result structures:
             # --------------------------------------------------------------------------------------------------
@@ -298,7 +295,6 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             extrascal[ibeam, 1] = dd.ec_launchers.beam[ibeam].power_launched.data[1] * 1.e-6
             extrascal[ibeam, 2] = 1.e6 * rhoresult[13]
             extrascal[ibeam, 3] = 1.e6 * rhoresult[12]
-
 
             # 1D PROFILES OF RHO, DP/DV, J (CHECKED OK, DIM = NPNT = 5000)
             for kp in 0:2
@@ -404,7 +400,6 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 dd.core_sources.source[source_index].profiles_1d[].grid.rho_tor_norm
             )
 
-
         # LOOP OVER RAYS
         resize!(dd.waves.coherent_wave[ibeam].beam_tracing, 1)
         dd.waves.coherent_wave[ibeam].beam_tracing[1].time = @ddtime(dd.equilibrium.time)
@@ -430,11 +425,9 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             end
         end
 
-
-
     end # LOOP OVER BEAMS (LAUNCHERS)
-    return dd.waves.code.output_flag = zeros(Int64, 0) # NO ERROR
 
+    return dd.waves.code.output_flag = zeros(Int64, 0) # NO ERROR
 end
 
 const document = Dict()
