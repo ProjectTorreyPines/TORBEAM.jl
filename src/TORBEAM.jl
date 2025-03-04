@@ -16,6 +16,7 @@ Base.@kwdef struct TorbeamParams
     nprofcalc = 1
     ncdharm = 1
     nrel = 0
+    n_ray = 5
     #Float parameters
     xrtol = 1e-07
     xatol = 1e-07
