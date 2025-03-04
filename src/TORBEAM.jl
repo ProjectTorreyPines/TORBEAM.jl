@@ -87,7 +87,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     bz = eqt2d.b_field_z
 
     # Interpolator for psi -> rho-tor need that later
-    rho_tor_interpolator = Interpolations.linear_interpolation(eq1d.psi, eq1d.rho_tor_norm)
+    rho_tor_norm_interpolator = Interpolations.linear_interpolation(eq1d.psi, eq1d.rho_tor_norm)
 
     psiedge = eqt.global_quantities.psi_boundary
     psiax = eqt.global_quantities.psi_axis
@@ -197,8 +197,9 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             # floatinbeam[3] = rad2deg(@ddtime(beam.steering_angle_pol))
             phi_tor = @ddtime(beam.steering_angle_tor)
             theta_pol = @ddtime(beam.steering_angle_pol)
-            floatinbeam[2] = -np.rad2deg(np.arcsin(np.cos(theta_pol) * np.sin(phi_tor)))
-            floatinbeam[3] = np.rad2deg(np.arctan2(np.tan(theta_pol), np.cos(phi_tor)))
+
+            floatinbeam[2] = rad2deg(phi_tor)
+            floatinbeam[3] = rad2deg(theta_pol)
             floatinbeam[4] = 1.e2 * beam.launching_position.r[1] * cos(0)  # (xxb)
             floatinbeam[5] = 1.e2 * beam.launching_position.r[1] * sin(0)  # (xyb)
             floatinbeam[6] = 1.e2 * beam.launching_position.z[1]  # (xzb)
@@ -229,7 +230,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
             # CALL TORBEAM
             ccall(
-                (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamC1.so"),    # Name in the shared library (append `_`)
+                (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamB.so"),    # Name in the shared library (append `_`)
                 Cvoid,                             # Return type
                 (Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, # Inputs
                     Ptr{Float64}, Ref{Cint}, Ptr{Float64}, Ptr{Float64}, Ref{Cint},
@@ -310,27 +311,22 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 # 1st ray
                 trajout[ibeam, 1, lfd] = t1data[lfd]                    # r
                 trajout[ibeam, 2, lfd] = t1data[iend[]+lfd]               # z
-                #trajout[ibeam, 3, lfd] = acos(t1tdata[lfd]/t1data[lfd]) # phi
                 trajout[ibeam, 3, lfd] = atan(t1tdata[iend[]+lfd], t1data[lfd]) # phi
                 # 2nd ray
                 trajout[ibeam, 4, lfd] = t1data[2*iend[]+lfd]
                 trajout[ibeam, 5, lfd] = t1data[3*iend[]+lfd]
-                #trajout[ibeam, 6, lfd] = acos(t1tdata[lfd]/t1data[2*iend[]+lfd])
                 trajout[ibeam, 6, lfd] = atan(t1tdata[iend[]+lfd], t1data[lfd])
                 # 3rd ray
                 trajout[ibeam, 7, lfd] = t1data[4*iend[]+lfd]
                 trajout[ibeam, 8, lfd] = t1data[5*iend[]+lfd]
-                #trajout[ibeam, 9, lfd] = acos(t1tdata[lfd]/t1data[4*iend[]+lfd])
-                trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd], t1data[iend[]+lfd])
+                trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd],t1data[lfd])
                 # 4th ray
                 trajout[ibeam, 10, lfd] = sqrt(t1tdata[2*iend[]+lfd]^2 + t1tdata[3*iend[]+lfd]^2)
                 trajout[ibeam, 11, lfd] = t1data[iend[]+lfd]
-                #trajout[ibeam, 12, lfd] = acos(t1tdata[2*iend[]+lfd]/trajout[ibeam, 10, lfd])
                 trajout[ibeam, 12, lfd] = atan(t1tdata[3*iend[]+lfd], t1tdata[2*iend[]+lfd])
                 # 5th ray
                 trajout[ibeam, 13, lfd] = sqrt(t1tdata[4*iend[]+lfd]^2 + t1tdata[5*iend[]+lfd]^2)
                 trajout[ibeam, 14, lfd] = t1data[iend[]+lfd]
-                #trajout[ibeam, 15, lfd] = acos(t1tdata[4*iend[]+lfd]/trajout[ibeam, 13, lfd+1])
                 trajout[ibeam, 15, lfd] = atan(t1tdata[5*iend[]+lfd], t1tdata[4*iend[]+lfd])
             end
 
@@ -363,8 +359,8 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wv1d = resize!(wv.profiles_1d) # global_time
         wv.profiles_1d[1].time = @ddtime(dd.equilibrium.time)
         psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
-        rho_tor_beam = rho_tor_interpolator(psi_beam)
-        wv1d.grid.rho_tor_norm = rho_tor_beam
+        rho_tor_norm_beam = rho_tor_norm_interpolator(psi_beam)
+        wv1d.grid.rho_tor_norm = rho_tor_norm_beam
         wv1d.grid.psi = psi_beam
         wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
         wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
@@ -383,10 +379,10 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
         # LOOP OVER RAYS
         wvb = resize!(wv.beam_tracing) # global_time
-        resize!(wvb.beam, 5) # Five beams/per gyrotron
+        resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
         iend[] = min(npointsout[ibeam], ntraj)
         if beam.power_launched.data[1] > 0.0
-            for iray in 1:5 # 5 rays (to not mix with input beams)
+            for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
                 phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ beam.launching_position.phi[1]
