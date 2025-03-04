@@ -338,7 +338,7 @@ using Plots
                     trajout[ibeam, 7, lfd] = t1data[4*iend[]+lfd]
                     trajout[ibeam, 8, lfd] = t1data[5*iend[]+lfd]
                     #trajout[ibeam, 9, lfd] = acos(t1tdata[lfd]/t1data[4*iend[]+lfd])
-                    trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd],t1data[iend[]+lfd])
+                    trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd],t1data[lfd])
                     # 4th ray
                     trajout[ibeam, 10, lfd] = sqrt(t1tdata[2*iend[]+lfd]^2+t1tdata[3*iend[]+lfd]^2)
                     trajout[ibeam, 11, lfd] = t1data[iend[]+lfd]
