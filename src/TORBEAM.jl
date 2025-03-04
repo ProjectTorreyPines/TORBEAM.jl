@@ -3,6 +3,7 @@ using IMAS
 using Interpolations
 
 Base.@kwdef struct TorbeamParams
+    # switches
     npow = 1
     ncd = 1
     ncdroutine = 2
@@ -15,7 +16,6 @@ Base.@kwdef struct TorbeamParams
     nprofcalc = 1
     ncdharm = 1
     nrel = 0
-
     #Float parameters
     xrtol = 1e-07
     xatol = 1e-07
@@ -38,6 +38,11 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
         @debug("No beams - returning")
         return
     end
+
+    eqt = dd.equilibrium.time_slice[]
+    eq1d = eqt.profiles_1d
+    eqt2d = IMAS.findfirst(:rectangular, eqt.profiles_2d)
+    cp1d = dd.core_profiles.profiles_1d[]
 
     maxint = 50
     maxflt = 50
@@ -73,9 +78,6 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     trajout = zeros(Float64, (nbeam, 15, ntraj))
 
     # Allocate arrays
-    eqt2d = dd.equilibrium
-    eqt2d = IMAS.findfirst(:rectangular, eqt2d.time_slice[].profiles_2d)
-    psi2d = eqt2d.psi
     Rarr = eqt2d.grid.dim1
     Zarr = eqt2d.grid.dim2
     ni = length(Rarr)
@@ -85,12 +87,11 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     bz = eqt2d.b_field_z
 
     # Interpolator for psi -> rho-tor need that later
-    eq1d = dd.equilibrium.time_slice[].profiles_1d
     rho_tor_interpolator = Interpolations.linear_interpolation(eq1d.psi, eq1d.rho_tor_norm)
 
-    psiedge = dd.equilibrium.time_slice[].global_quantities.psi_boundary
-    psiax = dd.equilibrium.time_slice[].global_quantities.psi_axis
-    cp1d = dd.core_profiles.profiles_1d[]
+    psiedge = eqt.global_quantities.psi_boundary
+    psiax = eqt.global_quantities.psi_axis
+
     # Initialize vector 'eqdata' as TORBEAM input (topfile):
     # Psi, 1D, for normalization
     npsi = length(cp1d.grid.psi)
@@ -130,28 +131,23 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     for j in 1:nj
         for i in 1:ni
             k = k + 1
-            eqdata[k+ni+nj+3*ni*nj+1] = psi2d[i, j]
+            eqdata[k+ni+nj+3*ni*nj+1] = eqt2d.psi[i, j]
         end
     end
-
-    iplasma = dd.equilibrium.time_slice[].global_quantities.ip
 
     # FILL TORBEAM INTERNAL PROFILE DATA
     #... Initialize vector 'prdata' as TORBEAM input (ne.dat & Te.dat):
     # Psi and profiles
-    te = dd.core_profiles.profiles_1d[].electrons.temperature
-    ne = dd.core_profiles.profiles_1d[].electrons.density
-
     for i in 1:npsi
         prdata[i] = sqrt((psi[i] - psi[1]) / (psi[npsi] - psi[1]))
-        prdata[i+npsi] = ne[i] * 1.0e-19
+        prdata[i+npsi] = cp1d.electrons.density[i] * 1.0e-19
     end
     for i in 1:npsi
         prdata[i+2*npsi] = sqrt((psi[i] - psi[1]) / (psi[npsi] - psi[1]))
-        prdata[i+2*npsi+npsi] = te[i] * 1.0e-3
+        prdata[i+2*npsi+npsi] = cp1d.electrons.temperature[i] * 1.0e-3
     end
-    # Initialize antenna data as TORBEAM input:
 
+    # Initialize antenna data as TORBEAM input:
     # DETERMINE WHETHER PSI FLUX IS MAXIMUM (1) OR MINIMUM (-1) AT THE MAGNETIC AXIS
     if (psiedge > psiax)
         sgnm = 1.0
@@ -163,9 +159,10 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     profout = zeros(Float64, (nbeam, 3, npnt))
     # LOOP OVER BEAMS OF THE EC_LAUNCHERS IDS
     for ibeam in 1:nbeam
+        beam = dd.ec_launchers.beam[ibeam]
 
         # ONLY DEAL WITH ACTIVE BEAMS
-        if (@ddtime(dd.ec_launchers.beam[ibeam].power_launched.data) > 0)
+        if (@ddtime(beam.power_launched.data) > 0)
 
             # IT LOOKS LIKE TORBEAM NEEDS PHI = 0, OTHERWISE IT DOES NOT TREAT THE BEAM PROPERLY
             # BUT WE WILL RESTORE THE ACTUAL PHI ANGLE AFTER THE RAY-TRACING, SO WE DON'T
@@ -175,7 +172,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             #intinbeam
             intinbeam[1] = 2  # tbr
             intinbeam[2] = 2  # tbr
-            intinbeam[3] = dd.ec_launchers.beam[ibeam].mode  # (nmod)
+            intinbeam[3] = beam.mode  # (nmod)
             intinbeam[4] = torbeam_params.npow
             intinbeam[5] = torbeam_params.ncd
             intinbeam[6] = 2  # tbr
@@ -195,40 +192,40 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             #floatinbeam(17:18): obsolete --> not filled)
             #floatinbeam(6:13):  analytic --> not filled)
             #floatinbeam(26:32): analytic --> not filled)
-            floatinbeam[1] = @ddtime(dd.ec_launchers.beam[ibeam].frequency.data)  # (xf)
-            # floatinbeam[2] = rad2deg(-@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor))
-            # floatinbeam[3] = rad2deg(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
-            phi_tor = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
-            theta_pol = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
+            floatinbeam[1] = @ddtime(beam.frequency.data)  # (xf)
+            # floatinbeam[2] = rad2deg(-@ddtime(beam.steering_angle_tor))
+            # floatinbeam[3] = rad2deg(@ddtime(beam.steering_angle_pol))
+            phi_tor = @ddtime(beam.steering_angle_tor)
+            theta_pol = @ddtime(beam.steering_angle_pol)
             floatinbeam[2] = -np.rad2deg(np.arcsin(np.cos(theta_pol) * np.sin(phi_tor)))
             floatinbeam[3] = np.rad2deg(np.arctan2(np.tan(theta_pol), np.cos(phi_tor)))
-            floatinbeam[4] = 1.e2 * dd.ec_launchers.beam[ibeam].launching_position.r[1] * cos(0)  # (xxb)
-            floatinbeam[5] = 1.e2 * dd.ec_launchers.beam[ibeam].launching_position.r[1] * sin(0)  # (xyb)
-            floatinbeam[6] = 1.e2 * dd.ec_launchers.beam[ibeam].launching_position.z[1]  # (xzb)
+            floatinbeam[4] = 1.e2 * beam.launching_position.r[1] * cos(0)  # (xxb)
+            floatinbeam[5] = 1.e2 * beam.launching_position.r[1] * sin(0)  # (xyb)
+            floatinbeam[6] = 1.e2 * beam.launching_position.z[1]  # (xzb)
 
             floatinbeam[15] = torbeam_params.xrtol  # keep
             floatinbeam[16] = torbeam_params.xatol  # keep
             floatinbeam[17] = torbeam_params.xstep  # keep
-            floatinbeam[20] = -1.e2 / (dd.ec_launchers.beam[ibeam].phase.curvature[1, 1])  # (xryyb)
-            floatinbeam[21] = -1.e2 / (dd.ec_launchers.beam[ibeam].phase.curvature[2, 1])  # (xrzzb)
-            if (cos(@ddtime(dd.ec_launchers.beam[ibeam].spot.angle))^2 > 0.5)
-                floatinbeam[22] = dd.ec_launchers.beam[ibeam].spot.size[1, 1] * 1.e2  # (xwyyb)
-                floatinbeam[23] = dd.ec_launchers.beam[ibeam].spot.size[2, 1] * 1.e2  # (xwzzb)
+            floatinbeam[20] = -1.e2 / (beam.phase.curvature[1, 1])  # (xryyb)
+            floatinbeam[21] = -1.e2 / (beam.phase.curvature[2, 1])  # (xrzzb)
+            if (cos(@ddtime(beam.spot.angle))^2 > 0.5)
+                floatinbeam[22] = beam.spot.size[1, 1] * 1.e2  # (xwyyb)
+                floatinbeam[23] = beam.spot.size[2, 1] * 1.e2  # (xwzzb)
             else
-                floatinbeam[22] = dd.ec_launchers.beam[ibeam].spot.size[2, 1] * 1.e2  # (xwzzb)
-                floatinbeam[23] = dd.ec_launchers.beam[ibeam].spot.size[1, 1] * 1.e2  # (xwyyb)
+                floatinbeam[22] = beam.spot.size[2, 1] * 1.e2  # (xwzzb)
+                floatinbeam[23] = beam.spot.size[1, 1] * 1.e2  # (xwyyb)
             end
-            floatinbeam[24] = @ddtime(dd.ec_launchers.beam[ibeam].power_launched.data) * 1.e-6  # (xpw0)
-            floatinbeam[25] = dd.equilibrium.time_slice[].boundary.geometric_axis.r * 1e2  # (xrmaj)
-            floatinbeam[26] = dd.equilibrium.time_slice[].boundary.minor_radius * 1e2  # (xrmin)
-            floatinbeam[27] = @ddtime(dd.equilibrium.vacuum_toroidal_field.b0)
+            floatinbeam[24] = @ddtime(beam.power_launched.data) * 1.e-6  # (xpw0)
+            floatinbeam[25] = eqt.boundary.geometric_axis.r * 1e2  # (xrmaj)
+            floatinbeam[26] = eqt.boundary.minor_radius * 1e2  # (xrmin)
+            floatinbeam[27] = eqt.vacuum_toroidal_field.b0
             floatinbeam[34] = sgnm  # (deduced from psi_ed-psi_ax)
-            floatinbeam[35] = dd.core_profiles.profiles_1d[].zeff[1]  # (xzeff)
+            floatinbeam[35] = cp1d.zeff[1]  # (xzeff)
             floatinbeam[36] = torbeam_params.rhostop  # keep
             floatinbeam[37] = torbeam_params.xzsrch  # keep
 
             @debug("------------------------------------------------------------")
-            @debug("Input power beam: ", ibeam, " ", @ddtime(dd.ec_launchers.beam[ibeam].power_launched.data) * 1.e-6, " MW")
+            @debug("Input power beam: ", ibeam, " ", @ddtime(beam.power_launched.data) * 1.e-6, " MW")
 
             # CALL TORBEAM
             ccall(
@@ -292,7 +289,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             # --------------------------------------------------------------------------------------------------
 
             npointsout[ibeam] = iend[]
-            extrascal[ibeam, 1] = dd.ec_launchers.beam[ibeam].power_launched.data[1] * 1.e-6
+            extrascal[ibeam, 1] = beam.power_launched.data[1] * 1.e-6
             extrascal[ibeam, 2] = 1.e6 * rhoresult[13]
             extrascal[ibeam, 3] = 1.e6 * rhoresult[12]
 
@@ -345,71 +342,54 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
     # SAVE RESULTS INTO WAVES IDS
     # ----------------------------
 
-    # GLOBAL QUANTITIES
-    dd.waves.ids_properties.homogeneous_time = 1
-    dd.waves.time = zeros(Float64, 1)
-    dd.waves.time[1] = @ddtime(dd.equilibrium.time)
-    dd.waves.code.name = "TORBEAM"
-
-    source_index = length(dd.core_sources.source) + 1
-    resize!(dd.core_sources.source, source_index)
-    dd.core_sources.source[source_index].identifier.index = 3
-    resize!(dd.core_sources.source[source_index].profiles_1d, 1)
-    dd.core_sources.source[source_index].profiles_1d[1].time = @ddtime(dd.equilibrium.time)
-
     # LOOP OVER BEAMS (LAUNCHERS)
     #if(nbeam.gt.10) nbeam = 10 # MSR waiting for IMAS-3271
     resize!(dd.waves.coherent_wave, nbeam)
     for ibeam in 1:nbeam
-        resize!(dd.waves.coherent_wave[ibeam].global_quantities, 1)
-        dd.waves.coherent_wave[ibeam].identifier.antenna_name = dd.ec_launchers.beam[ibeam].name
-        dd.waves.coherent_wave[ibeam].global_quantities[1].frequency = dd.ec_launchers.beam[ibeam].frequency.data[1]
-        dd.waves.coherent_wave[ibeam].global_quantities[1].electrons.power_thermal = extrascal[ibeam, 2]
-        dd.waves.coherent_wave[ibeam].global_quantities[1].power = extrascal[ibeam, 2]
-        dd.waves.coherent_wave[ibeam].global_quantities[1].current_tor = extrascal[ibeam, 3]
-        dd.waves.coherent_wave[ibeam].identifier.type.description = "TORBEAM"
-        # if statement needed to filter empty sources for hcd2core_sources
-        if (dd.ec_launchers.beam[ibeam].power_launched.data[1] > 0)
-            dd.waves.coherent_wave[ibeam].identifier.type.name = "EC"
-            dd.waves.coherent_wave[ibeam].identifier.type.index = 1
-            dd.waves.coherent_wave[ibeam].wave_solver_type.index = 1 # BEAM/RAY TRACING
-        end
-        resize!(dd.waves.coherent_wave[ibeam].profiles_1d, 1)
-        dd.waves.coherent_wave[ibeam].profiles_1d[1].time = @ddtime(dd.equilibrium.time)
+        beam = dd.ec_launchers.beam[ibeam]
+        wv = dd.waves.coherent_wave[ibeam]
+        wv.identifier.antenna_name = beam.name
+        wv.identifier.type.description = "TORBEAM"
+        wv.identifier.type.name = "EC"
+        wv.identifier.type.index = 1
+        wv.wave_solver_type.index = 1 # BEAM/RAY TRACING
+
+        wvg = resize!(wv.global_quantities) # global_time
+        wvg.frequency = @ddtime(beam.frequency.data)
+        wvg.electrons.power_thermal = extrascal[ibeam, 2]
+        wvg.power = extrascal[ibeam, 2]
+        wvg.current_tor = extrascal[ibeam, 3]
+
+        wv1d = resize!(wv.profiles_1d) # global_time
+        wv.profiles_1d[1].time = @ddtime(dd.equilibrium.time)
         psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
         rho_tor_beam = rho_tor_interpolator(psi_beam)
-        dd.waves.coherent_wave[ibeam].profiles_1d[].grid.rho_tor_norm = rho_tor_beam
-        dd.waves.coherent_wave[ibeam].profiles_1d[].grid.psi = psi_beam
-        dd.waves.coherent_wave[ibeam].profiles_1d[].power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
-        dd.waves.coherent_wave[ibeam].profiles_1d[].electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
-        dd.waves.coherent_wave[ibeam].profiles_1d[].current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * iplasma / abs(iplasma)
-        if ibeam == 1
-            dd.core_sources.source[source_index].profiles_1d[].grid.rho_tor_norm = dd.waves.coherent_wave[1].profiles_1d[1].grid.rho_tor_norm
-            dd.core_sources.source[source_index].profiles_1d[].grid.psi = dd.waves.coherent_wave[1].profiles_1d[1].grid.psi
-            dd.core_sources.source[source_index].profiles_1d[].electrons.power_inside = zeros(Float64, length(dd.waves.coherent_wave[1].profiles_1d[].power_density))
-            dd.core_sources.source[source_index].profiles_1d[].current_parallel_inside = zeros(Float64, length(dd.waves.coherent_wave[1].profiles_1d[].current_parallel_density))
-        end
-        dd.core_sources.source[source_index].profiles_1d[].electrons.power_inside +=
-            Interpolations.linear_interpolation(dd.waves.coherent_wave[ibeam].profiles_1d[1].grid.rho_tor_norm,
-                dd.waves.coherent_wave[ibeam].profiles_1d[].power_density)(
-                dd.core_sources.source[source_index].profiles_1d[].grid.rho_tor_norm
-            )
-        dd.core_sources.source[source_index].profiles_1d[].current_parallel_inside +=
-            Interpolations.linear_interpolation(dd.waves.coherent_wave[ibeam].profiles_1d[1].grid.rho_tor_norm,
-                dd.waves.coherent_wave[ibeam].profiles_1d[].current_parallel_density)(
-                dd.core_sources.source[source_index].profiles_1d[].grid.rho_tor_norm
-            )
+        wv1d.grid.rho_tor_norm = rho_tor_beam
+        wv1d.grid.psi = psi_beam
+        wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
+        wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
+        wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
+
+        source = resize!(dd.core_sources.source, :ec, "identifier.name" => beam.name; wipe=false)
+        IMAS.new_source(
+            source,
+            source.identifier.index,
+            beam.name,
+            wv1d.grid.rho_tor_norm,
+            wv1d.grid.volume,
+            wv1d.grid.area;
+            electrons_energy=wv1d.power_density,
+            j_parallel=wv1d.current_parallel_density)
 
         # LOOP OVER RAYS
-        resize!(dd.waves.coherent_wave[ibeam].beam_tracing, 1)
-        dd.waves.coherent_wave[ibeam].beam_tracing[1].time = @ddtime(dd.equilibrium.time)
-        resize!(dd.waves.coherent_wave[ibeam].beam_tracing[].beam, 5) # Five beams/per gyrotron
+        wvb = resize!(wv.beam_tracing) # global_time
+        resize!(wvb.beam, 5) # Five beams/per gyrotron
         iend[] = min(npointsout[ibeam], ntraj)
-        if (dd.ec_launchers.beam[ibeam].power_launched.data[1] > 0)
+        if beam.power_launched.data[1] > 0.0
             for iray in 1:5 # 5 rays (to not mix with input beams)
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
-                phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ dd.ec_launchers.beam[ibeam].launching_position.phi[1]
+                phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ beam.launching_position.phi[1]
                 x = cos.(phi) .* r
                 y = sin.(phi) .* r
                 s = zeros(Float64, iend[])
@@ -417,17 +397,17 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
                                     (y[2:iend[]] .- y[1:iend[]-1]) .^ 2 .+
                                     (z[2:iend[]] .- z[1:iend[]-1]) .^ 2)
                 s = cumsum(s)
-                dd.waves.coherent_wave[ibeam].beam_tracing[].beam[iray].length = s
-                dd.waves.coherent_wave[ibeam].beam_tracing[].beam[iray].position.r = r
-                dd.waves.coherent_wave[ibeam].beam_tracing[].beam[iray].position.z = z
+                wvb.beam[iray].length = s
+                wvb.beam[iray].position.r = r
+                wvb.beam[iray].position.z = z
                 # Rotation of the output rays to fit the actual input toroidal angle
-                dd.waves.coherent_wave[ibeam].beam_tracing[].beam[iray].position.phi = phi
+                wvb.beam[iray].position.phi = phi
             end
         end
 
     end # LOOP OVER BEAMS (LAUNCHERS)
 
-    return dd.waves.code.output_flag = zeros(Int64, 0) # NO ERROR
+    return dd.waves.code.output_flag = 0 # NO ERROR
 end
 
 const document = Dict()
