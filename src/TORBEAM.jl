@@ -206,11 +206,14 @@ using Plots
                 # floatinbeam[2] = -rad2deg(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor))
                 # floatinbeam[3] = rad2deg(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
                 # TODO fix when OMAS is updated
-                phi_tor  = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
-                theta_pol = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
-
-                floatinbeam[2]  = rad2deg(phi_tor)
-                floatinbeam[3]  = rad2deg(theta_pol)
+                steering_angle_tor = -asin(cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
+                                           *sin(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
+                steering_angle_pol = atan(tan(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)), 
+                                          cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
+                alpha = steering_angle_pol
+                beta = -steering_angle_tor
+                floatinbeam[2] = rad2deg(atan(tan(beta), cos(alpha)))
+                floatinbeam[3] = rad2deg(asin(sin(alpha) * cos(beta)))
 
                 # floatinbeam[2]  = rad2deg(asin(cos(theta_pol)*sin(phi_tor)))
                 # floatinbeam[3]  = rad2deg(atan(tan(theta_pol), cos(phi_tor)))
@@ -328,17 +331,17 @@ using Plots
                     trajout[ibeam, 1, lfd] = t1data[lfd]                    # r
                     trajout[ibeam, 2, lfd] = t1data[iend[]+lfd]               # z
                     #trajout[ibeam, 3, lfd] = acos(t1tdata[lfd]/t1data[lfd]) # phi
-                    trajout[ibeam, 3, lfd] = atan(t1tdata[iend[]+lfd],t1data[lfd]) # phi
+                    trajout[ibeam, 3, lfd] = atan(t1tdata[iend[]+lfd],t1tdata[lfd]) # phi
                     # 2nd ray
                     trajout[ibeam, 4, lfd] = t1data[2*iend[]+lfd]
                     trajout[ibeam, 5, lfd] = t1data[3*iend[]+lfd]
                     #trajout[ibeam, 6, lfd] = acos(t1tdata[lfd]/t1data[2*iend[]+lfd])
-                    trajout[ibeam, 6, lfd] = atan(t1tdata[iend[]+lfd],t1data[lfd])
+                    trajout[ibeam, 6, lfd] = atan(t1tdata[iend[]+lfd],t1tdata[lfd])
                     # 3rd ray
                     trajout[ibeam, 7, lfd] = t1data[4*iend[]+lfd]
                     trajout[ibeam, 8, lfd] = t1data[5*iend[]+lfd]
                     #trajout[ibeam, 9, lfd] = acos(t1tdata[lfd]/t1data[4*iend[]+lfd])
-                    trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd],t1data[lfd])
+                    trajout[ibeam, 9, lfd] = atan(t1tdata[iend[]+lfd],t1tdata[lfd])
                     # 4th ray
                     trajout[ibeam, 10, lfd] = sqrt(t1tdata[2*iend[]+lfd]^2+t1tdata[3*iend[]+lfd]^2)
                     trajout[ibeam, 11, lfd] = t1data[iend[]+lfd]
@@ -442,7 +445,7 @@ using Plots
 
     end
 
-    function overview_plot(dd, d3d=false)
+    function overview_plot(dd)
         p_rz = plot()
         p_xy = plot()
         p_prof = plot(layout=(2,1))
@@ -459,8 +462,8 @@ using Plots
 
         for ibeam=1:length(dd.waves.coherent_wave)
             plot!(p_rz, dd.waves.coherent_wave[ibeam])
-            plot!(p_xy, dd.waves.coherent_wave[ibeam], top=true, d3d=d3d)
-            plot!(p_prof, dd.waves.coherent_wave[ibeam].profiles_1d)
+            plot!(p_xy, dd.waves.coherent_wave[ibeam], top=true)
+            plot!(p_prof, dd.waves.coherent_wave[ibeam].profiles_1d, xlimits=(0.1,0.4))
         end
         savefig(p_rz, "Plots/TORBEAM_rz.pdf")
         savefig(p_xy, "Plots/TORBEAM_xy.pdf")
