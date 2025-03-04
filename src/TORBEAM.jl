@@ -400,11 +400,13 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wvb = resize!(wv.beam_tracing) # global_time
         resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
         iend[] = min(npointsout[ibeam], ntraj)
-        if beam.power_launched.data[1] > 0.0
+        if @ddtime(beam.power_launched.data) > 0.0
             for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
-                phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ beam.launching_position.phi[1]
+                # FIX after OMAS ec_launchers correction
+                phi_launch = -beam.launching_position.phi[1] - pi/2.0
+                phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ phi_launch
                 x = cos.(phi) .* r
                 y = sin.(phi) .* r
                 s = zeros(Float64, iend[])
