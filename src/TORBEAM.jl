@@ -200,9 +200,10 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
             # floatinbeam[3] = rad2deg(@ddtime(beam.steering_angle_pol))
             # TODO fix when OMAS is updated
             steering_angle_tor = -asin(cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
-                                       *sin(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
-            steering_angle_pol = atan(tan(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)), 
-                                      cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
+                                       *
+                                       sin(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
+            steering_angle_pol = atan(tan(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)),
+                cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
             alpha = steering_angle_pol
             beta = -steering_angle_tor
             floatinbeam[2] = rad2deg(atan(tan(beta), cos(alpha)))
@@ -405,7 +406,7 @@ function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
                 # FIX after OMAS ec_launchers correction
-                phi_launch = -beam.launching_position.phi[1] - pi/2.0
+                phi_launch = -beam.launching_position.phi[1] - pi / 2.0
                 phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ phi_launch
                 x = cos.(phi) .* r
                 y = sin.(phi) .* r
@@ -434,8 +435,8 @@ document[Symbol(@__MODULE__)] = [name for name in Base.names(@__MODULE__; all=fa
 function overview_plot(dd)
     p_rz = plot()
     p_xy = plot()
-    p_prof = plot(layout=(2,1))
-    plot!(p_rz, dd.equilibrium.time_slice[], cx=true)
+    p_prof = plot(; layout=(2, 1))
+    plot!(p_rz, dd.equilibrium.time_slice[]; cx=true)
 
     phi = LinRange(0.0, 2.0 * pi, 200)
     ipsi = findmin(abs.(dd.equilibrium.time_slice[].profiles_1d.psi .- 1.0))[2]
@@ -443,13 +444,13 @@ function overview_plot(dd)
     y_inboard = dd.equilibrium.time_slice[].profiles_1d.r_inboard[ipsi] .* sin.(phi)
     x_outboard = dd.equilibrium.time_slice[].profiles_1d.r_outboard[ipsi] .* cos.(phi)
     y_outboard = dd.equilibrium.time_slice[].profiles_1d.r_outboard[ipsi] .* sin.(phi)
-    plot!(p_xy, x_inboard, y_inboard, cx=true)
-    plot!(p_xy, x_outboard, y_outboard, cx=true)
+    plot!(p_xy, x_inboard, y_inboard; cx=true)
+    plot!(p_xy, x_outboard, y_outboard; cx=true)
 
-    for ibeam=1:length(dd.waves.coherent_wave)
+    for ibeam in 1:length(dd.waves.coherent_wave)
         plot!(p_rz, dd.waves.coherent_wave[ibeam])
-        plot!(p_xy, dd.waves.coherent_wave[ibeam], top=true)
-        plot!(p_prof, dd.waves.coherent_wave[ibeam].profiles_1d, xlimits=(0.1,0.4))
+        plot!(p_xy, dd.waves.coherent_wave[ibeam]; top=true)
+        plot!(p_prof, dd.waves.coherent_wave[ibeam].profiles_1d; xlimits=(0.1, 0.4))
     end
     savefig(p_rz, "Plots/TORBEAM_rz.pdf")
     savefig(p_xy, "Plots/TORBEAM_xy.pdf")
