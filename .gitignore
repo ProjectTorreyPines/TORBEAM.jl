@@ -32,6 +32,7 @@ Manifest.toml
 /.vscode/*
 .ipynb_checkpoints
 .DS_Store
+.vscode_workspace.code-workspace
 
 # temp/test files
 test.json
