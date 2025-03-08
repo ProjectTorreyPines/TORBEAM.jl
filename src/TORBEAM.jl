@@ -26,7 +26,7 @@ Base.@kwdef mutable struct TorbeamParams
     xzsrch::Float64 = 0.0     # Vertical position for searching the magnetic axis (default 0 cm)
 end
 
-function torbeam!(dd::IMAS.dd, torbeam_params::TorbeamParams)
+function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     # TORBEAM subroutine in IMAS
     #----------------------------
 
