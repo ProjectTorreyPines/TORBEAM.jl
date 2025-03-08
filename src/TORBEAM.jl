@@ -36,8 +36,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
     nbeam = length(dd.ec_launchers.beam)
     if nbeam < 1
-        @debug("No beams - returning")
-        return
+        return nbeam
     end
 
     eqt = dd.equilibrium.time_slice[]
@@ -423,7 +422,9 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
     end # LOOP OVER BEAMS (LAUNCHERS)
 
-    return @ddtime(dd.waves.code.output_flag = 0) # NO ERROR
+    @ddtime(dd.waves.code.output_flag = 0) # NO ERROR
+
+    return nbeam
 end
 
 const document = Dict()
