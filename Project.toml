@@ -14,4 +14,5 @@ TORBEAMext = "Plots"
 
 [compat]
 IMAS = "3.4"
+Plots = "1"
 julia = "1"
