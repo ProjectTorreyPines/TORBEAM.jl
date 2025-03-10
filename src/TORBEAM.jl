@@ -1,7 +1,7 @@
 module TORBEAM
 using IMAS
 
-Base.@kwdef mutable struct TorbeamParams
+Base.@kwdef struct TorbeamParams
     # switches
     npow::Int = 1             # Power absorption switch (1 = on, 0 = off)
     ncd::Int = 1              # Current drive calculation switch (1 = on, 0 = off)
@@ -160,9 +160,11 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     # LOOP OVER BEAMS OF THE EC_LAUNCHERS IDS
     for ibeam in 1:nbeam
         beam = dd.ec_launchers.beam[ibeam]
+        ps_beam = dd.pulse_schedule.ec.beam[ibeam]
+        power_launched = @ddtime(ps_beam.power_launched.reference)
 
         # ONLY DEAL WITH ACTIVE BEAMS
-        if (@ddtime(beam.power_launched.data) > 0)
+        if power_launched > 0
 
             # IT LOOKS LIKE TORBEAM NEEDS PHI = 0, OTHERWISE IT DOES NOT TREAT THE BEAM PROPERLY
             # BUT WE WILL RESTORE THE ACTUAL PHI ANGLE AFTER THE RAY-TRACING, SO WE DON'T
@@ -221,7 +223,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 floatinbeam[22] = beam.spot.size[2, 1] * 1.e2  # (xwzzb)
                 floatinbeam[23] = beam.spot.size[1, 1] * 1.e2  # (xwyyb)
             end
-            floatinbeam[24] = @ddtime(beam.power_launched.data) * 1.e-6  # (xpw0)
+            floatinbeam[24] = power_launched * 1.e-6  # (xpw0)
             floatinbeam[25] = eqt.boundary.geometric_axis.r * 1e2  # (xrmaj)
             floatinbeam[26] = eqt.boundary.minor_radius * 1e2  # (xrmin)
             floatinbeam[27] = eqt.global_quantities.vacuum_toroidal_field.b0
@@ -231,7 +233,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             floatinbeam[37] = torbeam_params.xzsrch  # keep
 
             @debug("------------------------------------------------------------")
-            @debug("Input power beam: ", ibeam, " ", @ddtime(beam.power_launched.data) * 1.e-6, " MW")
+            @debug("Input power beam: ", ibeam, " ", power_launched * 1.e-6, " MW")
             # CALL TORBEAM
             function invoke_ccall()
                 return ccall(
@@ -256,7 +258,6 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 end
             end
 
-            @debug(rhoresult[19])
             # --------------------------------------------------------------------------------------------------
             # Result structures:
             # --------------------------------------------------------------------------------------------------
@@ -307,7 +308,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             # --------------------------------------------------------------------------------------------------
 
             npointsout[ibeam] = iend[]
-            extrascal[ibeam, 1] = beam.power_launched.data[1] * 1.e-6
+            extrascal[ibeam, 1] = power_launched * 1.e-6
             extrascal[ibeam, 2] = 1.e6 * rhoresult[13]
             extrascal[ibeam, 3] = 1.e6 * rhoresult[12]
 
@@ -360,6 +361,9 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     resize!(dd.waves.coherent_wave, nbeam)
     for ibeam in 1:nbeam
         beam = dd.ec_launchers.beam[ibeam]
+        ps_beam = dd.pulse_schedule.ec.beam[ibeam]
+        power_launched = @ddtime(ps_beam.power_launched.reference)
+
         wv = dd.waves.coherent_wave[ibeam]
         wv.identifier.antenna_name = beam.name
         wv.identifier.type.description = "TORBEAM"
@@ -376,7 +380,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wv1d = resize!(wv.profiles_1d) # global_time
         wv.profiles_1d[1].time = @ddtime(dd.equilibrium.time)
         psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
-        rho_tor_norm_beam = rho_tor_norm_interpolator(psi_beam)
+        rho_tor_norm_beam = rho_tor_norm_interpolator.(psi_beam)
         wv1d.grid.rho_tor_norm = rho_tor_norm_beam
         wv1d.grid.psi = psi_beam
         wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
@@ -398,7 +402,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wvb = resize!(wv.beam_tracing) # global_time
         resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
         iend[] = min(npointsout[ibeam], ntraj)
-        if @ddtime(beam.power_launched.data) > 0.0
+        if power_launched > 0.0
             for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
