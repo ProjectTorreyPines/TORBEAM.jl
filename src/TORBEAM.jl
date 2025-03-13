@@ -195,16 +195,8 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             #floatinbeam(6:13):  analytic --> not filled)
             #floatinbeam(26:32): analytic --> not filled)
             floatinbeam[1] = @ddtime(beam.frequency.data)  # (xf)
-            # floatinbeam[2] = rad2deg(-@ddtime(beam.steering_angle_tor))
-            # floatinbeam[3] = rad2deg(@ddtime(beam.steering_angle_pol))
-            # TODO fix when OMAS is updated
-            steering_angle_tor = -asin(cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
-                                       *
-                                       sin(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
-            steering_angle_pol = atan(tan(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)),
-                cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
-            alpha = steering_angle_pol
-            beta = -steering_angle_tor
+            alpha = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
+            beta = -@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
             floatinbeam[2] = rad2deg(atan(tan(beta), cos(alpha)))
             floatinbeam[3] = rad2deg(asin(sin(alpha) * cos(beta)))
             floatinbeam[4] = 1.e2 * beam.launching_position.r[1] * cos(0)  # (xxb)
@@ -406,8 +398,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
-                # FIX after OMAS ec_launchers correction
-                phi_launch = -beam.launching_position.phi[1] - pi / 2.0
+                phi_launch = beam.launching_position.phi[1]
                 phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ phi_launch
                 x = cos.(phi) .* r
                 y = sin.(phi) .* r
@@ -430,6 +421,10 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
     return nbeam
 end
+
+function overview_plot end
+
+
 
 const document = Dict()
 document[Symbol(@__MODULE__)] = [name for name in Base.names(@__MODULE__; all=false, imported=false) if name != Symbol(@__MODULE__)]
