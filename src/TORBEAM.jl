@@ -370,7 +370,6 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wvg.current_tor = extrascal[ibeam, 3]
 
         wv1d = resize!(wv.profiles_1d) # global_time
-        wv.profiles_1d[1].time = @ddtime(dd.equilibrium.time)
         psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
         rho_tor_norm_beam = rho_tor_norm_interpolator.(psi_beam)
         wv1d.grid.rho_tor_norm = rho_tor_norm_beam
