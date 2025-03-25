@@ -377,8 +377,10 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wv1d.grid.psi = psi_beam
         wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
         wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
-        wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
-
+        #TODO: The expression below might still need to be revised
+        # wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
+        wv1d.current_parallel_density = 1.e6 * profout[ibeam, 3, 1:npnt]
+        
         source = resize!(dd.core_sources.source, :ec, "identifier.name" => beam.name; wipe=false)
         IMAS.new_source(
             source,
