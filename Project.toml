@@ -1,7 +1,7 @@
 name = "TORBEAM"
 uuid = "b9bf819a-2a49-451a-b482-4ce9066e62e1"
 authors = ["Severin Denk <denks@fusion.gat.com>"]
-version = "1.0.1"
+version = "1.0.2"
 
 [deps]
 IMAS = "13ead8c1-b7d1-41bb-a6d0-5b8b65ed587a"
