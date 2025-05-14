@@ -40,7 +40,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     end
 
     eqt = dd.equilibrium.time_slice[]
-    eq1d = eqt.profiles_1d
+    eqt1d = eqt.profiles_1d
     eqt2d = IMAS.findfirst(:rectangular, eqt.profiles_2d)
     cp1d = dd.core_profiles.profiles_1d[]
 
@@ -77,7 +77,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     t2ndata = zeros(Float64, 3 * npnt)
     trajout = zeros(Float64, (nbeam, 15, ntraj))
 
-    # Allocate arrays
+    # data in IMAS format
     Rarr = eqt2d.grid.dim1
     Zarr = eqt2d.grid.dim2
     ni = length(Rarr)
@@ -87,7 +87,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     bz = eqt2d.b_field_z
 
     # Interpolator for psi -> rho-tor need that later
-    rho_tor_norm_interpolator = IMAS.interp1d(eq1d.psi, eq1d.rho_tor_norm)
+    rho_tor_norm_interpolator = IMAS.interp1d(eqt1d.psi, eqt1d.rho_tor_norm)
 
     psiedge = eqt.global_quantities.psi_boundary
     psiax = eqt.global_quantities.psi_axis
