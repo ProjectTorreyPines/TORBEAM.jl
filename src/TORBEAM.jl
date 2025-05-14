@@ -164,6 +164,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         power_launched = @ddtime(ps_beam.power_launched.reference)
 
         # ONLY DEAL WITH ACTIVE BEAMS
+        # TODO add threshold
         if power_launched > 0
 
             # IT LOOKS LIKE TORBEAM NEEDS PHI = 0, OTHERWISE IT DOES NOT TREAT THE BEAM PROPERLY
@@ -355,47 +356,41 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         beam = dd.ec_launchers.beam[ibeam]
         ps_beam = dd.pulse_schedule.ec.beam[ibeam]
         power_launched = @ddtime(ps_beam.power_launched.reference)
-
+       
         wv = dd.waves.coherent_wave[ibeam]
         wv.identifier.antenna_name = beam.name
         wv.identifier.type.description = "TORBEAM"
         wv.identifier.type.name = "EC"
         wv.identifier.type.index = 1
         wv.wave_solver_type.index = 1 # BEAM/RAY TRACING
-
-        wvg = resize!(wv.global_quantities) # global_time
-        wvg.frequency = @ddtime(beam.frequency.data)
-        wvg.electrons.power_thermal = extrascal[ibeam, 2]
-        wvg.power = extrascal[ibeam, 2]
-        wvg.current_tor = extrascal[ibeam, 3]
-
-        wv1d = resize!(wv.profiles_1d) # global_time
-        psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
-        rho_tor_norm_beam = rho_tor_norm_interpolator.(psi_beam)
-        wv1d.grid.rho_tor_norm = rho_tor_norm_beam
-        wv1d.grid.psi = psi_beam
-        wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
-        wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
-        #TODO: The expression below might still need to be revised
-        # wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
-        wv1d.current_parallel_density = 1.e6 * profout[ibeam, 3, 1:npnt]
+        @ddtime(dd.ec_launchers.beam[ibeam].power_launched=power_launched)
         
-        source = resize!(dd.core_sources.source, :ec, "identifier.name" => beam.name; wipe=false)
-        IMAS.new_source(
-            source,
-            source.identifier.index,
-            beam.name,
-            wv1d.grid.rho_tor_norm,
-            wv1d.grid.volume,
-            wv1d.grid.area;
-            electrons_energy=wv1d.power_density,
-            j_parallel=wv1d.current_parallel_density)
-
-        # LOOP OVER RAYS
+        wvg = resize!(wv.global_quantities) # global_time
+        wv1d = resize!(wv.profiles_1d) # global_time
         wvb = resize!(wv.beam_tracing) # global_time
-        resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
-        iend[] = min(npointsout[ibeam], ntraj)
         if power_launched > 0.0
+            wvg.frequency = @ddtime(beam.frequency.data)
+            wvg.electrons.power_thermal = extrascal[ibeam, 2]
+            wvg.power = extrascal[ibeam, 2]
+            wvg.current_tor = extrascal[ibeam, 3]
+
+        
+            psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
+            rho_tor_norm_beam = rho_tor_norm_interpolator.(psi_beam)
+            wv1d.grid.rho_tor_norm = rho_tor_norm_beam
+            wv1d.grid.psi = psi_beam
+            wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
+            wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
+            #TODO: The expression below might still need to be revised
+            # wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
+            wv1d.current_parallel_density = 1.e6 * profout[ibeam, 3, 1:npnt]
+            
+
+            # LOOP OVER RAYS
+        
+            resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
+            iend[] = min(npointsout[ibeam], ntraj)
+        
             for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
@@ -414,7 +409,23 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 # Rotation of the output rays to fit the actual input toroidal angle
                 wvb.beam[iray].position.phi = phi
             end
+        else
+            wv1d.grid.rho_tor_norm = Vector{Float64}()
+            wv1d.grid.volume = Vector{Float64}()
+            wv1d.grid.area = Vector{Float64}()
+            wv1d.power_density = Vector{Float64}()
+            wv1d.current_parallel_density = Vector{Float64}()
         end
+        source = resize!(dd.core_sources.source, :ec, "identifier.name" => beam.name; wipe=false)
+        IMAS.new_source(
+            source,
+            source.identifier.index,
+            beam.name,
+            wv1d.grid.rho_tor_norm,
+            wv1d.grid.volume,
+            wv1d.grid.area;
+            electrons_energy=wv1d.power_density,
+            j_parallel=wv1d.current_parallel_density)
 
     end # LOOP OVER BEAMS (LAUNCHERS)
 
