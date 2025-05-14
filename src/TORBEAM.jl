@@ -363,7 +363,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         wv.identifier.type.name = "EC"
         wv.identifier.type.index = 1
         wv.wave_solver_type.index = 1 # BEAM/RAY TRACING
-        @ddtime(dd.ec_launchers.beam[ibeam].power_launched=power_launched)
+        @ddtime(dd.ec_launchers.beam[ibeam].power_launched.data=power_launched)
         
         wvg = resize!(wv.global_quantities) # global_time
         wv1d = resize!(wv.profiles_1d) # global_time
