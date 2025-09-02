@@ -3,7 +3,7 @@ module TORBEAMext
 using TORBEAM
 using Plots
 
-function overview_plot(dd)
+function TORBEAM.overview_plot(dd)
     p_rz = plot()
     p_xy = plot()
     p_prof = plot(; layout=(2, 1))
@@ -23,9 +23,9 @@ function overview_plot(dd)
         plot!(p_xy, dd.waves.coherent_wave[ibeam]; top=true)
         plot!(p_prof, dd.waves.coherent_wave[ibeam].profiles_1d; xlimits=(0.1, 0.4))
     end
-    savefig(p_rz, "Plots/TORBEAM_rz.pdf")
-    savefig(p_xy, "Plots/TORBEAM_xy.pdf")
-    savefig(p_prof, "Plots/TORBEAM_profiles.pdf")
+    savefig(p_rz, joinpath(@__DIR__,"..", "Plots", "TORBEAM_rz.pdf"))
+    savefig(p_xy, joinpath(@__DIR__,"..", "Plots", "TORBEAM_xy.pdf"))
+    savefig(p_prof, joinpath(@__DIR__,"..", "Plots", "TORBEAM_profiles.pdf"))
     return p_rz, p_xy, p_prof
 end
 
