@@ -164,6 +164,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         power_launched = @ddtime(ps_beam.power_launched.reference)
 
         # ONLY DEAL WITH ACTIVE BEAMS
+        # TODO add threshold
         if power_launched > 0
 
             # IT LOOKS LIKE TORBEAM NEEDS PHI = 0, OTHERWISE IT DOES NOT TREAT THE BEAM PROPERLY
@@ -195,16 +196,8 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             #floatinbeam(6:13):  analytic --> not filled)
             #floatinbeam(26:32): analytic --> not filled)
             floatinbeam[1] = @ddtime(beam.frequency.data)  # (xf)
-            # floatinbeam[2] = rad2deg(-@ddtime(beam.steering_angle_tor))
-            # floatinbeam[3] = rad2deg(@ddtime(beam.steering_angle_pol))
-            # TODO fix when OMAS is updated
-            steering_angle_tor = -asin(cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol))
-                                       *
-                                       sin(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
-            steering_angle_pol = atan(tan(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)),
-                cos(@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)))
-            alpha = steering_angle_pol
-            beta = -steering_angle_tor
+            alpha = @ddtime(dd.ec_launchers.beam[ibeam].steering_angle_pol)
+            beta = -@ddtime(dd.ec_launchers.beam[ibeam].steering_angle_tor)
             floatinbeam[2] = rad2deg(atan(tan(beta), cos(alpha)))
             floatinbeam[3] = rad2deg(asin(sin(alpha) * cos(beta)))
             floatinbeam[4] = 1.e2 * beam.launching_position.r[1] * cos(0)  # (xxb)
@@ -363,51 +356,45 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         beam = dd.ec_launchers.beam[ibeam]
         ps_beam = dd.pulse_schedule.ec.beam[ibeam]
         power_launched = @ddtime(ps_beam.power_launched.reference)
-
+       
         wv = dd.waves.coherent_wave[ibeam]
         wv.identifier.antenna_name = beam.name
         wv.identifier.type.description = "TORBEAM"
         wv.identifier.type.name = "EC"
         wv.identifier.type.index = 1
         wv.wave_solver_type.index = 1 # BEAM/RAY TRACING
-
+        @ddtime(dd.ec_launchers.beam[ibeam].power_launched.data=power_launched)
+        
         wvg = resize!(wv.global_quantities) # global_time
-        wvg.frequency = @ddtime(beam.frequency.data)
-        wvg.electrons.power_thermal = extrascal[ibeam, 2]
-        wvg.power = extrascal[ibeam, 2]
-        wvg.current_tor = extrascal[ibeam, 3]
-
         wv1d = resize!(wv.profiles_1d) # global_time
-        wv.profiles_1d[1].time = @ddtime(dd.equilibrium.time)
-        psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
-        rho_tor_norm_beam = rho_tor_norm_interpolator.(psi_beam)
-        wv1d.grid.rho_tor_norm = rho_tor_norm_beam
-        wv1d.grid.psi = psi_beam
-        wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
-        wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
-        wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
-
-        source = resize!(dd.core_sources.source, :ec, "identifier.name" => beam.name; wipe=false)
-        IMAS.new_source(
-            source,
-            source.identifier.index,
-            beam.name,
-            wv1d.grid.rho_tor_norm,
-            wv1d.grid.volume,
-            wv1d.grid.area;
-            electrons_energy=wv1d.power_density,
-            j_parallel=wv1d.current_parallel_density)
-
-        # LOOP OVER RAYS
         wvb = resize!(wv.beam_tracing) # global_time
-        resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
-        iend[] = min(npointsout[ibeam], ntraj)
         if power_launched > 0.0
+            wvg.frequency = @ddtime(beam.frequency.data)
+            wvg.electrons.power_thermal = extrascal[ibeam, 2]
+            wvg.power = extrascal[ibeam, 2]
+            wvg.current_tor = extrascal[ibeam, 3]
+
+        
+            psi_beam = profout[ibeam, 1, 1:npnt] .^ 2 * (psiedge - psiax) .+ psiax
+            rho_tor_norm_beam = rho_tor_norm_interpolator.(psi_beam)
+            wv1d.grid.rho_tor_norm = rho_tor_norm_beam
+            wv1d.grid.psi = psi_beam
+            wv1d.power_density = 1.e6 * profout[ibeam, 2, 1:npnt]
+            wv1d.electrons.power_density_thermal = 1.e6 * profout[ibeam, 2, 1:npnt]
+            #TODO: The expression below might still need to be revised
+            # wv1d.current_parallel_density = -1.e6 * profout[ibeam, 3, 1:npnt] * sign(eqt.global_quantities.ip)
+            wv1d.current_parallel_density = 1.e6 * profout[ibeam, 3, 1:npnt]
+            
+
+            # LOOP OVER RAYS
+        
+            resize!(wvb.beam, torbeam_params.n_ray) # Five beams/per gyrotron
+            iend[] = min(npointsout[ibeam], ntraj)
+        
             for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[ibeam, 1+3*(iray-1), 1:iend[]]
                 z = 1.e-2 * trajout[ibeam, 2+3*(iray-1), 1:iend[]]
-                # FIX after OMAS ec_launchers correction
-                phi_launch = -beam.launching_position.phi[1] - pi / 2.0
+                phi_launch = beam.launching_position.phi[1]
                 phi = trajout[ibeam, 3+3*(iray-1), 1:iend[]] .+ phi_launch
                 x = cos.(phi) .* r
                 y = sin.(phi) .* r
@@ -422,7 +409,23 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
                 # Rotation of the output rays to fit the actual input toroidal angle
                 wvb.beam[iray].position.phi = phi
             end
+        else
+            wv1d.grid.rho_tor_norm = Vector{Float64}()
+            wv1d.grid.volume = Vector{Float64}()
+            wv1d.grid.area = Vector{Float64}()
+            wv1d.power_density = Vector{Float64}()
+            wv1d.current_parallel_density = Vector{Float64}()
         end
+        source = resize!(dd.core_sources.source, :ec, "identifier.name" => beam.name; wipe=false)
+        IMAS.new_source(
+            source,
+            source.identifier.index,
+            beam.name,
+            wv1d.grid.rho_tor_norm,
+            wv1d.grid.volume,
+            wv1d.grid.area;
+            electrons_energy=wv1d.power_density,
+            j_parallel=wv1d.current_parallel_density)
 
     end # LOOP OVER BEAMS (LAUNCHERS)
 
@@ -430,6 +433,10 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
 
     return nbeam
 end
+
+function overview_plot end
+
+
 
 const document = Dict()
 document[Symbol(@__MODULE__)] = [name for name in Base.names(@__MODULE__; all=false, imported=false) if name != Symbol(@__MODULE__)]
