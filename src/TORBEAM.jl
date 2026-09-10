@@ -1,5 +1,6 @@
 module TORBEAM
 using IMAS
+import Libdl
 
 Base.@kwdef struct TorbeamParams
     # switches
@@ -236,8 +237,13 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             @debug("Input power beam: ", ibeam, " ", power_launched * 1.e-6, " MW")
             # CALL TORBEAM
             function invoke_ccall()
+                # The library path is only known at run time (TORBEAM_DIR), so resolve the
+                # symbol through Libdl: `ccall((:sym, <non-constant expr>), ...)` is rejected
+                # at lowering time since Julia 1.13.
+                libtorbeam = get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamB.so"
+                beam_ptr = Libdl.dlsym(Libdl.dlopen(libtorbeam), :beam_)   # Name in the shared library (append `_`)
                 return ccall(
-                    (:beam_, get(ENV, "TORBEAM_DIR", "") * "/../lib/libtorbeamB.so"),    # Name in the shared library (append `_`)
+                    beam_ptr,
                     Cvoid,                             # Return type
                     (Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, Ref{Int32}, Ref{Int32}, Ref{Float64}, # Inputs
                         Ptr{Float64}, Ref{Cint}, Ptr{Float64}, Ptr{Float64}, Ref{Cint},
