@@ -316,28 +316,36 @@ struct CurrentDriveTable
 end
 
 """
-    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=25, full_operator=true)
+    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=40, nλ=300, full_operator=true)
 
 With `full_operator` the responses carry the u-dependence of the full linearized
 collision operator (see `SpitzerFunction`), using the surface temperature
 """
-function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=25, full_operator::Bool=true)
+function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=40, nλ::Int=300, full_operator::Bool=true)
     ρs = collect(range(0.04, 0.98; length=nρ))
     spitzer = full_operator ? SpitzerFunction1D(Zeff) : nothing
-    sfs = [SpitzerFunction(FluxSurface(m, ρ), Zeff; spitzer, μ=510.99895 / max(temperature(m, ρ), 1e-3)) for ρ in ρs]
+    sfs = [SpitzerFunction(FluxSurface(m, ρ), Zeff; nλ, spitzer, μ=510.99895 / max(temperature(m, ρ), 1e-3)) for ρ in ρs]
     return CurrentDriveTable(ρs, sfs)
 end
 
 """
     cd_efficiency(table::CurrentDriveTable, st, w, N; nmax=3)
 
-Local `j∥/P_abs` at a plasma state, using the Spitzer function of the nearest tabulated surface
+Local `j∥/P_abs` at a plasma state, interpolated linearly in rho between the
+two neighbouring tabulated surfaces
 """
 function cd_efficiency(table::CurrentDriveTable, st, w::WaveParams, N::AbstractVector; nmax::Int=3)
     ρ = sqrt(max(st.ψn, 0.0))
     ρ < 1 || return 0.0
-    k = argmin(abs.(table.ρ .- ρ))
-    sf = table.sf[k]
-    b = max(st.Bmag / sf.fs.Bmin, 1.0)
-    return cd_efficiency(sf, b, st, w, N; nmax)
+    ρs = table.ρ
+    if ρ <= ρs[1] || ρ >= ρs[end]
+        k = ρ <= ρs[1] ? 1 : length(ρs)
+        sf = table.sf[k]
+        return cd_efficiency(sf, max(st.Bmag / sf.fs.Bmin, 1.0), st, w, N; nmax)
+    end
+    k = searchsortedlast(ρs, ρ)
+    t = (ρ - ρs[k]) / (ρs[k+1] - ρs[k])
+    η1 = cd_efficiency(table.sf[k], max(st.Bmag / table.sf[k].fs.Bmin, 1.0), st, w, N; nmax)
+    η2 = cd_efficiency(table.sf[k+1], max(st.Bmag / table.sf[k+1].fs.Bmin, 1.0), st, w, N; nmax)
+    return (1 - t) * η1 + t * η2
 end
