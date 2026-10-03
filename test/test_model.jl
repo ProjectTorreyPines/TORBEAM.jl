@@ -67,8 +67,8 @@ import Interpolations
                 BR, Bφ, BZ = TORBEAM.B_cyl(m, R, Z)
                 @test s.Bmag ≈ sqrt(BR^2 + Bφ^2 + BZ^2) rtol = 1e-12
                 @test s.R ≈ R && s.Z == Z
-                @test s.ρ ≈ TORBEAM.rho_pol(m, R, Z)
-                @test s.ne ≈ TORBEAM.density(m, s.ρ) && s.Te ≈ TORBEAM.temperature(m, s.ρ)
+                @test s.ψn ≈ TORBEAM.rho_pol(m, R, Z)^2
+                @test s.ne ≈ TORBEAM.density_ψn(m, s.ψn) && s.Te ≈ TORBEAM.temperature_ψn(m, s.ψn)
                 # the field is invariant under toroidal rotation
                 @test hypot(s.B[1], s.B[2]) ≈ hypot(BR, Bφ) rtol = 1e-12
                 # ForwardDiff goes through the whole state evaluation

@@ -90,6 +90,8 @@ struct BeamOutputs
 end
 
 include("model.jl")
+include("dispersion.jl")
+include("beam_tracing.jl")
 
 """
     equilibrium_inputs(dd::IMAS.dd)
