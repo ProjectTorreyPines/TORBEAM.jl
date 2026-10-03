@@ -2,14 +2,43 @@
 # and pack everything into TORBEAM's `BeamOutputs` layout.
 
 """
-    julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
+    BackendCache
+
+Per-equilibrium objects shared by all beams of a `run_torbeam` call: the
+plasma model, the flux-surface volumes and (when current drive is on) the
+current-drive table. Built by `backend_cache`.
+"""
+struct BackendCache
+    model::PlasmaModel
+    volumes::Tuple{Vector{Float64},Vector{Float64}}
+    table::Union{Nothing,CurrentDriveTable}
+end
+
+"""
+    backend_cache(inputs::BeamInputs, torbeam_params::TorbeamParams)
+
+Build the `BackendCache` for the equilibrium and profiles in `inputs`
+"""
+function backend_cache(inputs::BeamInputs, torbeam_params::TorbeamParams)
+    m = PlasmaModel(inputs)
+    ρV, V = flux_volumes(m)
+    nmax = torbeam_params.npow == 0 ? 0 : torbeam_params.nmaxh
+    table = torbeam_params.ncd == 1 && nmax > 0 ? CurrentDriveTable(m, m.Zeff; full_operator=torbeam_params.ncdroutine == 2) : nothing
+    return BackendCache(m, (collect(ρV), V), table)
+end
+
+"""
+    julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache=nothing)
 
 Run one launcher with the Julia backend and return `BeamOutputs` in the layout
-of the Fortran library (cm, MW, kA; see `BeamOutputs`).
+of the Fortran library (cm, MW, kA; see `BeamOutputs`). `cache` (a
+`BackendCache` for the same equilibrium) avoids rebuilding the model, the
+volumes and the current-drive table for every beam.
 """
-function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
+function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Union{Nothing,BackendCache}=nothing)
     nprofv = torbeam_params.nprofv
-    m = PlasmaModel(inputs)
+    cache === nothing && (cache = backend_cache(inputs, torbeam_params))
+    m = cache.model
     l = Launch(inputs)
     nmax = torbeam_params.npow == 0 ? 0 : torbeam_params.nmaxh
     b = trace_beam(m, l; rhostop=torbeam_params.rhostop, nmax, reltol=torbeam_params.xrtol, abstol=torbeam_params.xatol)
@@ -41,13 +70,13 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
         t1tdata[5iend+i] = 100 * ri[2]
     end
 
-    if torbeam_params.ncd == 1 && nmax > 0
-        table = CurrentDriveTable(m, m.Zeff; full_operator=torbeam_params.ncdroutine == 2)
+    if cache.table !== nothing
+        table = cache.table
         efficiency = (u, s) -> cd_efficiency(table, state(m, u[1], u[2], u[3]), l.wave, u[4:6]; nmax)
     else
         efficiency = nothing
     end
-    dep = deposition(b, m; efficiency)
+    dep = deposition(b, m; efficiency, volumes=cache.volumes)
     t2ndata = zeros(3 * NPNT)
     t2ndata[1:NPNT] = dep.ρ
     t2ndata[NPNT+1:2NPNT] = dep.dPdV ./ 1e6          # MW/m³

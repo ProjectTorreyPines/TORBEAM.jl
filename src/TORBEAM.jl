@@ -269,15 +269,17 @@ function beam_inputs(dd::IMAS.dd, ibeam::Int, torbeam_params::TorbeamParams, eq)
 end
 
 """
-    run_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
+    run_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache=nothing)
 
 Run TORBEAM for one launcher with the backend selected in `torbeam_params`.
+`cache` (a `BackendCache`, see `backend_cache`) is used by the Julia backend to
+share the per-equilibrium objects between the beams of one run.
 """
-function run_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
+function run_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache=nothing)
     if torbeam_params.backend == :fortran
         return fortran_beam(inputs, torbeam_params)
     elseif torbeam_params.backend == :julia
-        return julia_beam(inputs, torbeam_params)
+        return julia_beam(inputs, torbeam_params; cache)
     else
         error("TORBEAM backend `$(torbeam_params.backend)` not implemented (available: :fortran, :julia)")
     end
@@ -472,6 +474,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     psiax = eq.psiax
 
     outputs = Vector{Union{Nothing,BeamOutputs}}(nothing, nbeam)
+    cache = nothing   # per-equilibrium objects of the Julia backend, built on the first active beam
     # LOOP OVER BEAMS OF THE EC_LAUNCHERS IDS
     for ibeam in 1:nbeam
         ps_beam = dd.pulse_schedule.ec.beam[ibeam]
@@ -480,9 +483,12 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
         # ONLY DEAL WITH ACTIVE BEAMS
         if power_launched > 0
             inputs = beam_inputs(dd, ibeam, torbeam_params, eq)
+            if torbeam_params.backend == :julia && cache === nothing
+                cache = backend_cache(inputs, torbeam_params)
+            end
             @debug("------------------------------------------------------------")
             @debug("Input power beam: ", ibeam, " ", power_launched * 1.e-6, " MW")
-            outputs[ibeam] = run_beam(inputs, torbeam_params)
+            outputs[ibeam] = run_beam(inputs, torbeam_params; cache)
         end # TEST BEAM_POWER > 0
     end # LOOP OVER BEAMS OF EC_LAUNCHERS IDS
 

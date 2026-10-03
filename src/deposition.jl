@@ -62,7 +62,7 @@ function flux_volumes(m::PlasmaModel; nρ::Int=201, refine::Int=4)
 end
 
 """
-    deposition(b::BeamSolution, m::PlasmaModel; nρ=NPNT, width_factor=1.0)
+    deposition(b::BeamSolution, m::PlasmaModel; nρ=NPNT, width_factor=1.0, efficiency=nothing, volumes=nothing)
 
 Absorbed power per unit volume `dP/dV` [W/m³] and, when `efficiency(u, s)`
 (local j∥/P_abs [A m/W] from the ray state) is given, the driven current
@@ -82,7 +82,7 @@ frequency, i.e. shifted along the ray by `δs = -(ξ·∇Y)/(v̂·∇Y)` (limite
 deposition region (by 1/cos of the crossing angle) and is included in the
 sampling.
 """
-function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor::Float64=1.0, efficiency=nothing)
+function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor::Float64=1.0, efficiency=nothing, volumes=nothing)
     ρgrid = range(0.0, 1.0; length=nρ + 1)[1:nρ]
     dρ = 1 / nρ
     Pbin = zeros(nρ)
@@ -156,7 +156,7 @@ function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor
             end
         end
     end
-    ρV, V = flux_volumes(m)
+    ρV, V = volumes === nothing ? flux_volumes(m) : volumes
     Vc = cubic_resample(collect(ρV), V, collect(ρgrid))
     dVdρ = [k == 1 ? (Vc[2] - Vc[1]) / dρ : k == nρ ? (Vc[nρ] - Vc[nρ-1]) / dρ : (Vc[k+1] - Vc[k-1]) / (2dρ) for k in 1:nρ]
     dPdV = [dVdρ[k] > 0 ? Pbin[k] / dρ / dVdρ[k] : 0.0 for k in 1:nρ]
