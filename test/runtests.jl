@@ -3,6 +3,8 @@ using TORBEAM.IMAS
 using JSON
 using Test
 
+include("test_model.jl")
+
 const DATA_DIR = joinpath(@__DIR__, "data")
 const GOLDENS_DIR = joinpath(@__DIR__, "goldens")
 

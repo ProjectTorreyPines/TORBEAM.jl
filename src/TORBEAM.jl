@@ -89,6 +89,8 @@ struct BeamOutputs
     volprof::Vector{Float64}
 end
 
+include("model.jl")
+
 """
     equilibrium_inputs(dd::IMAS.dd)
 
