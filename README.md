@@ -63,9 +63,14 @@ the warm Hermitian corrections of the dispersion are not included yet. Current
 drive (`src/current_drive.jl`) uses the adjoint method with a response function
 solved numerically from the bounce-averaged adjoint Fokker-Planck equation on
 each flux surface (relativistic test-particle collisions, Z_eff, trapping from
-the real field variation); it corresponds to TORBEAM's Lin-Liu routine without
-momentum conservation (`ncdroutine=1`), with which it agrees within ~20% for
-beams that drive significant current.
+the real field variation). With `ncdroutine=1` this is the Lorentz-model
+response (TORBEAM's Lin-Liu routine without momentum conservation, agreement
+within ~20% for beams that drive significant current); with `ncdroutine=2`
+(default) its velocity dependence is replaced by that of the Spitzer function
+of the full linearized collision operator (`src/spitzer.jl`, non-relativistic,
+reproducing the Spitzer-Härm conductivity ratios), which captures the
+momentum-conservation enhancement at thermal energies — within ~20% of TORBEAM
+on DIII-D and overestimating it by up to ~50% on low-N∥ ITER launches.
 
 The run is split into three steps that a backend plugs into:
 

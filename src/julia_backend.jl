@@ -42,7 +42,7 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
     end
 
     if torbeam_params.ncd == 1 && nmax > 0
-        table = CurrentDriveTable(m, m.Zeff)
+        table = CurrentDriveTable(m, m.Zeff; full_operator=torbeam_params.ncdroutine == 2)
         efficiency = (u, s) -> cd_efficiency(table, state(m, u[1], u[2], u[3]), l.wave, u[4:6]; nmax)
     else
         efficiency = nothing

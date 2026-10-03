@@ -46,34 +46,47 @@
         eq = TORBEAM.equilibrium_inputs(dd)
         @testset "$case driven current vs Fortran" begin
             for (ibeam, gb) in enumerate(golden["beams"])
-                inputs = TORBEAM.beam_inputs(dd, ibeam, params, eq)
-                out = TORBEAM.run_beam(inputs, params)
-                I = out.rhoresult[13]
-                I1 = gb["Icd_ncdroutine1"]            # Lin-Liu without momentum conservation
-                I2 = gb["rhoresult"][13]               # with momentum conservation (ncdroutine=2)
-                @info "$case $(gb["name"]): I_cd $(round(I; digits=2)) kA vs Fortran $(round(I1; digits=2)) (ncdroutine=1) / $(round(I2; digits=2)) kA (ncdroutine=2)"
-                # the adjoint solver has no momentum-conservation correction yet: compare
-                # with ncdroutine=1, and only where the current is not a near-cancellation
-                # (near-perpendicular launches drive small currents whose sign hinges on
-                # which side of the resonance absorbs). Second-harmonic O-mode is skipped
-                # for the same reason: its weak absorption straddles the cold resonance,
-                # and which side dominates depends on the warm corrections of stage 3b.
+                I2 = gb["rhoresult"][13]               # Fortran with momentum conservation (ncdroutine=2)
+                I1 = gb["Icd_ncdroutine1"]            # Fortran Lin-Liu without momentum conservation
                 fi = gb["floatinbeam"]
                 nharm = round(Int, fi[1] / (27.99e9 * abs(fi[27])))
                 O2 = gb["intinbeam"][3] == 1 && nharm >= 2
-                if abs(I1) > 1.0 * gb["rhoresult"][14] && !O2   # > 1 kA per MW absorbed
-                    @test sign(I) == sign(I1)
-                    @test abs(I - I1) < 0.35 * abs(I1)
-                end
-                # the current profile is where the power is: its |j|-weighted mean rho
-                # agrees with the Fortran's
-                ρ = out.t2ndata[1:TORBEAM.NPNT]
-                j = out.t2ndata[2TORBEAM.NPNT+1:3TORBEAM.NPNT]
-                j1 = gb["j_ncdroutine1"]
-                if sum(abs, j1) > 0 && abs(I1) > 1.0 * gb["rhoresult"][14] && !O2
-                    @test abs(sum(ρ .* abs.(j)) / sum(abs.(j)) - sum(ρ .* abs.(j1)) / sum(abs.(j1))) < 0.06
+                # (Julia ncdroutine=1: bounce-averaged Lorentz-model response) vs Fortran ncdroutine=1,
+                # (Julia ncdroutine=2: rescaled by the full-operator Spitzer function) vs Fortran ncdroutine=2.
+                # Second-harmonic O-mode is skipped: its weak absorption straddles the cold resonance,
+                # and which side dominates (hence the sign) depends on the warm corrections of stage 3b.
+                for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.65))
+                    p = TORBEAM.TorbeamParams(; (Symbol(k) => v isa String ? Symbol(v) : v for (k, v) in golden["params"])..., backend=:julia, ncdroutine=ncdr)
+                    inputs = TORBEAM.beam_inputs(dd, ibeam, p, eq)
+                    out = TORBEAM.run_beam(inputs, p)
+                    I = out.rhoresult[13]
+                    @info "$case $(gb["name"]) ncdroutine=$ncdr: I_cd $(round(I; digits=2)) kA vs Fortran $(round(Iref; digits=2)) kA"
+                    # only where the current is not a near-cancellation (> 1 kA per MW absorbed)
+                    if abs(Iref) > 1.0 * gb["rhoresult"][14] && !O2
+                        @test sign(I) == sign(Iref)
+                        @test abs(I - Iref) < tol * abs(Iref)
+                        # the current profile is where the power is: |j|-weighted mean rho agrees
+                        ρ = out.t2ndata[1:TORBEAM.NPNT]
+                        j = out.t2ndata[2TORBEAM.NPNT+1:3TORBEAM.NPNT]
+                        jref = ncdr == 1 ? gb["j_ncdroutine1"] : gb["t2ndata"][2TORBEAM.NPNT+1:3TORBEAM.NPNT]
+                        if sum(abs, jref) > 0
+                            @test abs(sum(ρ .* abs.(j)) / sum(abs.(j)) - sum(ρ .* abs.(jref)) / sum(abs.(jref))) < 0.06
+                        end
+                    end
                 end
             end
         end
+    end
+end
+
+@testset "Spitzer-Härm function" begin
+    for (Z, γE) in ((1, 0.5816), (2, 0.6833), (4, 0.7849), (16, 0.9252))
+        sp = TORBEAM.SpitzerFunction1D(Z)
+        @test sp.γE ≈ γE rtol = 0.005              # Spitzer & Härm (1953) conductivity ratios
+        @test sp.ee_residual < 1e-3                 # e-e collisions conserve momentum (discretization level)
+        @test all(sp.D[10:end] .> 0)                # D ∝ x⁴ is at round-off in the first nodes
+        # tends to the Lorentz-model high-velocity solution
+        @test 0.95 < TORBEAM.spitzer_ratio(sp, 6.0) < 1.15
+        @test TORBEAM.spitzer_ratio(sp, 1.0) > TORBEAM.spitzer_ratio(sp, 3.0) > 1
     end
 end

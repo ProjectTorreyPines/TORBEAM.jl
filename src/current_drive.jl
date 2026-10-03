@@ -120,11 +120,18 @@ struct SpitzerFunction{S}
 end
 
 """
-    SpitzerFunction(fs::FluxSurface, Zeff; nu=300, nλ=200, umax=1.5)
+    SpitzerFunction(fs::FluxSurface, Zeff; nu=300, nλ=200, umax=1.5, spitzer=nothing, μ=Inf)
 
-Solve the bounce-averaged adjoint equation (see the file header) on the surface
+Solve the bounce-averaged adjoint equation (see the file header) on the surface.
+
+With `spitzer::SpitzerFunction1D` (the uniform-plasma Spitzer function with the
+full linearized collision operator) and `μ = mc²/Te`, the solution is rescaled by
+`spitzer_ratio(spitzer, u sqrt(μ/2))`, so that its u-dependence is that of the
+full operator (electron-electron momentum conservation, energy diffusion, exact
+thermal rates) while the pitch-angle/trapping structure is that of the
+bounce-averaged Lorentz model — exact in a uniform field.
 """
-function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200, umax::Float64=1.5)
+function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200, umax::Float64=1.5, spitzer=nothing, μ::Real=Inf)
     us = range(0.0, umax; length=nu)
     # λ grid clustered towards the trapped boundary, where χ ∝ sqrt(λc - λ)
     ts = range(0.0, 1.0; length=nλ)
@@ -168,6 +175,12 @@ function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200,
             rhs[k] = χ[iu-1, k] + c * u * ξbar[k]
         end
         χ[iu, 1:n] = tridiagonal_solve(lower, diag, upper, rhs)
+    end
+    if spitzer !== nothing
+        @assert isfinite(μ) "the Spitzer rescaling needs μ = mc²/Te"
+        for iu in 2:nu
+            χ[iu, :] .*= spitzer_ratio(spitzer, us[iu] * sqrt(μ / 2))
+        end
     end
     # spline on the (u, t) grid; evaluation maps λ -> t
     spl = Interpolations.cubic_spline_interpolation((us, ts), χ; extrapolation_bc=Interpolations.Line())
@@ -302,9 +315,16 @@ struct CurrentDriveTable
     sf::Vector{SpitzerFunction}
 end
 
-function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=25)
+"""
+    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=25, full_operator=true)
+
+With `full_operator` the responses carry the u-dependence of the full linearized
+collision operator (see `SpitzerFunction`), using the surface temperature
+"""
+function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=25, full_operator::Bool=true)
     ρs = collect(range(0.04, 0.98; length=nρ))
-    sfs = [SpitzerFunction(FluxSurface(m, ρ), Zeff) for ρ in ρs]
+    spitzer = full_operator ? SpitzerFunction1D(Zeff) : nothing
+    sfs = [SpitzerFunction(FluxSurface(m, ρ), Zeff; spitzer, μ=510.99895 / max(temperature(m, ρ), 1e-3)) for ρ in ρs]
     return CurrentDriveTable(ρs, sfs)
 end
 

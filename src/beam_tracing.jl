@@ -13,7 +13,7 @@
 # triangle), optical depth τ (power P = P0 exp(-τ)). SI units; M in 1/m.
 
 using OrdinaryDiffEqTsit5
-import LinearAlgebra: dot, norm, cross, eigen, Symmetric, I
+import LinearAlgebra: dot, norm, cross, eigen, Symmetric, I, Diagonal
 
 const NSTATE = 19
 const TAU_STOP = log(1e7)   # stop once less than 1e-7 of the power is left
