@@ -6,6 +6,7 @@ using Test
 include("test_model.jl")
 include("test_beam_tracing.jl")
 include("test_absorption.jl")
+include("test_current_drive.jl")
 
 const DATA_DIR = joinpath(@__DIR__, "data")
 const GOLDENS_DIR = joinpath(@__DIR__, "goldens")

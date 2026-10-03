@@ -132,6 +132,10 @@ for (case, spec) in CASES
     for ibeam in eachindex(dd.ec_launchers.beam)
         inputs = TORBEAM.beam_inputs(dd, ibeam, params, eq)
         out = TORBEAM.fortran_beam(inputs, params)
+        # the Fortran's Lin-Liu current without momentum conservation (ncdroutine=1),
+        # the reference for the Julia backend's adjoint solver until it has that correction
+        params1 = TORBEAM.TorbeamParams(; ncdroutine=1)
+        out1 = TORBEAM.fortran_beam(TORBEAM.beam_inputs(dd, ibeam, params1, eq), params1)
         println("  beam $ibeam $(dd.ec_launchers.beam[ibeam].name): P_abs = $(round(out.rhoresult[14]; digits=4)) MW, I_cd = $(round(out.rhoresult[13]; digits=2)) kA, rho = $(round(out.rhoresult[1]; digits=3)), flag = $(Int(out.rhoresult[20])), $(out.iend) ray points")
         out.rhoresult[20] == 0 || @warn "beam $(dd.ec_launchers.beam[ibeam].name) exited with flag $(Int(out.rhoresult[20]))"
         push!(beams, Dict(
@@ -140,6 +144,8 @@ for (case, spec) in CASES
             "floatinbeam" => inputs.floatinbeam,
             "ni" => inputs.ni, "nj" => inputs.nj, "npsi" => inputs.npsi,
             "eqdata_sum" => sum(inputs.eqdata), "prdata_sum" => sum(inputs.prdata),
+            "Icd_ncdroutine1" => out1.rhoresult[13],
+            "j_ncdroutine1" => out1.t2ndata[2*TORBEAM.NPNT+1:3*TORBEAM.NPNT],
             [string(f) => getfield(out, f) for f in fieldnames(TORBEAM.BeamOutputs)]...,
         ))
     end

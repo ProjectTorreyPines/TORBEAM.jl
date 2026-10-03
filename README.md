@@ -60,7 +60,12 @@ Gaussian cross-section (`src/deposition.jl`). Against the Fortran it reproduces
 the rays to a few mm and the deposition on DIII-D-like (2 keV) cases closely;
 at ITER temperatures the deposition is at the right place but narrower, since
 the warm Hermitian corrections of the dispersion are not included yet. Current
-drive is not implemented yet (zero).
+drive (`src/current_drive.jl`) uses the adjoint method with a response function
+solved numerically from the bounce-averaged adjoint Fokker-Planck equation on
+each flux surface (relativistic test-particle collisions, Z_eff, trapping from
+the real field variation); it corresponds to TORBEAM's Lin-Liu routine without
+momentum conservation (`ncdroutine=1`), with which it agrees within ~20% for
+beams that drive significant current.
 
 The run is split into three steps that a backend plugs into:
 

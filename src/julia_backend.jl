@@ -5,8 +5,7 @@
     julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
 
 Run one launcher with the Julia backend and return `BeamOutputs` in the layout
-of the Fortran library (cm, MW, kA; see `BeamOutputs`). Driven current is not
-computed yet (zero).
+of the Fortran library (cm, MW, kA; see `BeamOutputs`).
 """
 function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
     nprofv = torbeam_params.nprofv
@@ -42,11 +41,22 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
         t1tdata[5iend+i] = 100 * ri[2]
     end
 
-    dep = deposition(b, m)
+    if torbeam_params.ncd == 1 && nmax > 0
+        table = CurrentDriveTable(m, m.Zeff)
+        efficiency = (u, s) -> cd_efficiency(table, state(m, u[1], u[2], u[3]), l.wave, u[4:6]; nmax)
+    else
+        efficiency = nothing
+    end
+    dep = deposition(b, m; efficiency)
     t2ndata = zeros(3 * NPNT)
     t2ndata[1:NPNT] = dep.ρ
     t2ndata[NPNT+1:2NPNT] = dep.dPdV ./ 1e6          # MW/m³
-    # driven current density: stage 4
+    # the Fortran reports the driven current in the direction of the plasma current:
+    # our j∥ is along B, so multiply by sign(B0) sign(Ip), with sign(Ip) = sgnm
+    # (COCOS 11: psi increases outwards for Ip > 0)
+    sgn_j = sign(m.B0) * inputs.floatinbeam[34]
+    t2ndata[2NPNT+1:3NPNT] = sgn_j .* dep.j ./ 1e6            # MA/m²
+    Icd = sgn_j * sum(dep.Jbin) / (2π * m.R_axis) / 1e3      # kA: ∫ j dA ≈ ∫ j dV / (2π R)
 
     Pabs = (l.power - power(b, b.length)) / 1e6      # MW
     rhoresult = fill(-1.0, MAXRHR)
@@ -61,7 +71,7 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
         rhoresult[3] = 100 * x[3]
     end
     rhoresult[5] = 3 * nprofv
-    rhoresult[13] = 0.0
+    rhoresult[13] = Icd
     rhoresult[14] = Pabs
     rhoresult[20] = b.exit == :absorbed || Pabs > 1e-6 * l.power / 1e6 ? 0.0 : (b.exit == :grid ? 1.0 : 2.0)
 

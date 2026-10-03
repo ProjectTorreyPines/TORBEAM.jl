@@ -64,9 +64,10 @@ end
 """
     deposition(b::BeamSolution, m::PlasmaModel; nρ=NPNT, width_factor=1.0)
 
-Absorbed power per unit volume `dP/dV` [W/m³] on the TORBEAM rho_pol grid
-`range(0, 1, length=nρ+1)[1:nρ]`, together with the grid, the power absorbed
-per bin and the volumes.
+Absorbed power per unit volume `dP/dV` [W/m³] and, when `efficiency(u, s)`
+(local j∥/P_abs [A m/W] from the ray state) is given, the driven current
+density `j` [A/m²] on the TORBEAM rho_pol grid `range(0, 1, length=nρ+1)[1:nρ]`,
+together with the grid, the power and current×volume per bin and the volumes.
 
 The power absorbed on each solver step is spread in rho_pol as a Gaussian whose
 mean and width come from the beam cross-section: along each principal axis of
@@ -75,10 +76,11 @@ to the plane ⟂ to the ray) rho_pol is sampled at ±σ, giving the linear
 (gradient) and quadratic (curvature, e.g. near the axis or tangent to the flux
 surfaces) contributions to its spread. Negative rho_pol is folded back.
 """
-function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor::Float64=1.0)
+function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor::Float64=1.0, efficiency=nothing)
     ρgrid = range(0.0, 1.0; length=nρ + 1)[1:nρ]
     dρ = 1 / nρ
     Pbin = zeros(nρ)
+    Jbin = zeros(nρ)      # driven current × dV, when `efficiency(u, s)` [A m/W] is given
     k0 = b.launch.wave.k0
     ts = b.sol.t
     for i in 1:length(ts)-1
@@ -113,27 +115,53 @@ function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor
         end
         σρ = clamp(sqrt(σρ2), 0.5 * dρ, 0.5)
         μρ = clamp(μρ, 0.0, 1.5)
-        # Gaussian in rho, folded at rho = 0, restricted to rho < 1
-        klo = clamp(floor(Int, (μρ - 5σρ) / dρ), 1, nρ)
-        khi = clamp(ceil(Int, (μρ + 5σρ) / dρ) + 1, 1, nρ)
-        klo <= khi || continue
-        wsum = 0.0
-        w = zeros(khi - klo + 1)
-        for (j, k) in enumerate(klo:khi)
-            ρ = ρgrid[k] + 0.5 * dρ
-            w[j] = exp(-0.5 * ((ρ - μρ) / σρ)^2) + exp(-0.5 * ((ρ + μρ) / σρ)^2)
-            wsum += w[j]
-        end
-        wsum > 0 || continue
-        for (j, k) in enumerate(klo:khi)
-            Pbin[k] += ΔP * w[j] / wsum
+        η = efficiency === nothing ? 0.0 : efficiency(u, s)
+        if μρ - 3σρ > 0.05
+            # Gaussian in rho, restricted to rho < 1
+            klo = clamp(floor(Int, (μρ - 5σρ) / dρ), 1, nρ)
+            khi = clamp(ceil(Int, (μρ + 5σρ) / dρ) + 1, 1, nρ)
+            klo <= khi || continue
+            wsum = 0.0
+            w = zeros(khi - klo + 1)
+            for (j, k) in enumerate(klo:khi)
+                ρ = ρgrid[k] + 0.5 * dρ
+                w[j] = exp(-0.5 * ((ρ - μρ) / σρ)^2)
+                wsum += w[j]
+            end
+            wsum > 0 || continue
+            for (j, k) in enumerate(klo:khi)
+                Pbin[k] += ΔP * w[j] / wsum
+                Jbin[k] += ΔP * η * w[j] / wsum
+            end
+        else
+            # near the axis a Gaussian in rho is wrong (the flux surfaces shrink to a
+            # point): sample the cross-section directly and bin the exact rho of each
+            # sample, each sample spread over a few bins
+            tq, wq = gauss_hermite(12)
+            d1 = ev.vectors[1, 1] * e1 + ev.vectors[2, 1] * e2
+            d2 = ev.vectors[1, 2] * e1 + ev.vectors[2, 2] * e2
+            σ1 = sqrt(1 / (2 * k0 * max(ev.values[1], 1e-12)))
+            σ2 = sqrt(1 / (2 * k0 * max(ev.values[2], 1e-12)))
+            for (p, wp) in zip(tq, wq), (q, wqq) in zip(tq, wq)
+                x = x0 + sqrt(2) * σ1 * p * d1 + sqrt(2) * σ2 * q * d2
+                ρ = rho_pol(m, hypot(x[1], x[2]), x[3])
+                ρ < 1 || continue
+                wt = ΔP * wp * wqq / π
+                kc = clamp(floor(Int, ρ / dρ) + 1, 1, nρ)
+                for k in max(1, kc - 10):min(nρ, kc + 10)
+                    g = exp(-0.5 * ((k - kc) / 5)^2)
+                    Pbin[k] += wt * g / 12.53
+                    Jbin[k] += wt * η * g / 12.53
+                end
+            end
         end
     end
     ρV, V = flux_volumes(m)
     Vc = cubic_resample(collect(ρV), V, collect(ρgrid))
     dVdρ = [k == 1 ? (Vc[2] - Vc[1]) / dρ : k == nρ ? (Vc[nρ] - Vc[nρ-1]) / dρ : (Vc[k+1] - Vc[k-1]) / (2dρ) for k in 1:nρ]
     dPdV = [dVdρ[k] > 0 ? Pbin[k] / dρ / dVdρ[k] : 0.0 for k in 1:nρ]
-    return (; ρ=collect(ρgrid), dPdV, Pbin, V=Vc)
+    j = [dVdρ[k] > 0 ? Jbin[k] / dρ / dVdρ[k] : 0.0 for k in 1:nρ]
+    return (; ρ=collect(ρgrid), dPdV, j, Pbin, Jbin, V=Vc)
 end
 
 """
