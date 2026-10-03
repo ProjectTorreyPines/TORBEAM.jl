@@ -69,12 +69,18 @@ Absorbed power per unit volume `dP/dV` [W/m³] and, when `efficiency(u, s)`
 density `j` [A/m²] on the TORBEAM rho_pol grid `range(0, 1, length=nρ+1)[1:nρ]`,
 together with the grid, the power and current×volume per bin and the volumes.
 
-The power absorbed on each solver step is spread in rho_pol as a Gaussian whose
-mean and width come from the beam cross-section: along each principal axis of
-the power Gaussian (variance `σ² = 1/(2 k0 λ)`, `λ` eigenvalues of Φ restricted
-to the plane ⟂ to the ray) rho_pol is sampled at ±σ, giving the linear
-(gradient) and quadratic (curvature, e.g. near the axis or tangent to the flux
-surfaces) contributions to its spread. Negative rho_pol is folded back.
+The power absorbed on each solver step is distributed over the beam's power
+cross-section (Gaussian with variances `σ² = 1/(2 k0 λ)` along the principal
+axes, `λ` the eigenvalues of Φ restricted to the plane ⟂ to the ray) with a
+12×12 Gauss-Hermite rule; the exact rho_pol of each sample is binned, smoothed
+over a quarter of the step's rho spread (estimated from samples at ±σ).
+
+A part of the cross-section displaced by ξ from the central ray is absorbed not
+at the same arclength but where its own path reaches the same cyclotron
+frequency, i.e. shifted along the ray by `δs = -(ξ·∇Y)/(v̂·∇Y)` (limited to
+2|ξ|): for a beam crossing the resonance layer obliquely this elongates the
+deposition region (by 1/cos of the crossing angle) and is included in the
+sampling.
 """
 function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor::Float64=1.0, efficiency=nothing)
     ρgrid = range(0.0, 1.0; length=nρ + 1)[1:nρ]
@@ -99,6 +105,10 @@ function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor
         Φt = [dot(e1, Φ * e1) dot(e1, Φ * e2); dot(e2, Φ * e1) dot(e2, Φ * e2)]
         ev = eigen(Symmetric(Φt))
         ρ0 = rho_pol(m, hypot(x0[1], x0[2]), x0[3])
+        # gradient of the cyclotron frequency (∝ |B|) for the iso-Y shift of the samples
+        gY = ForwardDiff.gradient(p -> state(m, p[1], p[2], p[3]).Bmag, x0)
+        vY = dot(v, gY)
+        shift(ξ) = abs(vY) > 1e-3 * norm(gY) ? -(dot(ξ, gY) / vY) : 0.0
         μρ = ρ0
         σρ2 = 0.0
         for a in 1:2
@@ -106,53 +116,43 @@ function deposition(b::BeamSolution, m::PlasmaModel; nρ::Int=NPNT, width_factor
             # linearized spread is meaningless anyway (beam wider than the plasma)
             σ = min(width_factor * sqrt(1 / (2 * k0 * max(ev.values[a], 1e-12))), 0.25 * m.a)
             d = ev.vectors[1, a] * e1 + ev.vectors[2, a] * e2
-            xp = x0 + σ * d
-            xm = x0 - σ * d
+            δ = clamp(shift(σ * d), -2σ, 2σ)
+            xp = x0 + σ * d + δ * v
+            xm = x0 - σ * d - δ * v
             ρp = rho_pol(m, hypot(xp[1], xp[2]), xp[3])
             ρm = rho_pol(m, hypot(xm[1], xm[2]), xm[3])
             σρ2 += (0.5 * (ρp - ρm))^2 + (0.5 * (ρp + ρm) - ρ0)^2
             μρ += 0.5 * (ρp + ρm) - ρ0
         end
         σρ = clamp(sqrt(σρ2), 0.5 * dρ, 0.5)
-        μρ = clamp(μρ, 0.0, 1.5)
         η = efficiency === nothing ? 0.0 : efficiency(u, s)
-        if μρ - 3σρ > 0.05
-            # Gaussian in rho, restricted to rho < 1
-            klo = clamp(floor(Int, (μρ - 5σρ) / dρ), 1, nρ)
-            khi = clamp(ceil(Int, (μρ + 5σρ) / dρ) + 1, 1, nρ)
-            klo <= khi || continue
-            wsum = 0.0
-            w = zeros(khi - klo + 1)
-            for (j, k) in enumerate(klo:khi)
-                ρ = ρgrid[k] + 0.5 * dρ
-                w[j] = exp(-0.5 * ((ρ - μρ) / σρ)^2)
-                wsum += w[j]
-            end
-            wsum > 0 || continue
-            for (j, k) in enumerate(klo:khi)
-                Pbin[k] += ΔP * w[j] / wsum
-                Jbin[k] += ΔP * η * w[j] / wsum
-            end
-        else
-            # near the axis a Gaussian in rho is wrong (the flux surfaces shrink to a
-            # point): sample the cross-section directly and bin the exact rho of each
-            # sample, each sample spread over a few bins
-            tq, wq = gauss_hermite(12)
-            d1 = ev.vectors[1, 1] * e1 + ev.vectors[2, 1] * e2
-            d2 = ev.vectors[1, 2] * e1 + ev.vectors[2, 2] * e2
-            σ1 = sqrt(1 / (2 * k0 * max(ev.values[1], 1e-12)))
-            σ2 = sqrt(1 / (2 * k0 * max(ev.values[2], 1e-12)))
-            for (p, wp) in zip(tq, wq), (q, wqq) in zip(tq, wq)
-                x = x0 + sqrt(2) * σ1 * p * d1 + sqrt(2) * σ2 * q * d2
-                ρ = rho_pol(m, hypot(x[1], x[2]), x[3])
-                ρ < 1 || continue
-                wt = ΔP * wp * wqq / π
-                kc = clamp(floor(Int, ρ / dρ) + 1, 1, nρ)
-                for k in max(1, kc - 10):min(nρ, kc + 10)
-                    g = exp(-0.5 * ((k - kc) / 5)^2)
-                    Pbin[k] += wt * g / 12.53
-                    Jbin[k] += wt * η * g / 12.53
-                end
+        # sample the power cross-section (Gauss-Hermite in the principal frame), shift
+        # each sample along the ray to where its own path meets the resonance, and bin
+        # the exact rho of each sample, smoothed over a fraction of the step's rho spread
+        tq, wq = gauss_hermite(12)
+        d1 = ev.vectors[1, 1] * e1 + ev.vectors[2, 1] * e2
+        d2 = ev.vectors[1, 2] * e1 + ev.vectors[2, 2] * e2
+        σ1 = min(sqrt(1 / (2 * k0 * max(ev.values[1], 1e-12))), 0.5 * m.a)
+        σ2 = min(sqrt(1 / (2 * k0 * max(ev.values[2], 1e-12))), 0.5 * m.a)
+        kw = max(3.0, 0.25 * σρ / dρ)
+        nk = ceil(Int, 4kw)
+        gker = [exp(-0.5 * (j / kw)^2) for j in -nk:nk]
+        for (p, wp) in zip(tq, wq), (q, wqq) in zip(tq, wq)
+            ξ = sqrt(2) * σ1 * p * d1 + sqrt(2) * σ2 * q * d2
+            # the shift is limited to twice the transverse displacement: beyond that the
+            # straight continuation of a sub-ray is not reliable (grazing crossings)
+            x = x0 + ξ + clamp(shift(ξ), -2norm(ξ), 2norm(ξ)) * v
+            ρ = rho_pol(m, hypot(x[1], x[2]), x[3])
+            ρ < 1 || continue
+            wt = ΔP * wp * wqq / π
+            kc = clamp(floor(Int, ρ / dρ) + 1, 1, nρ)
+            klo = max(1, kc - nk)
+            khi = min(nρ, kc + nk)
+            gsum = sum(gker[j-kc+nk+1] for j in klo:khi)
+            for k in klo:khi
+                g = gker[k-kc+nk+1] / gsum
+                Pbin[k] += wt * g
+                Jbin[k] += wt * η * g
             end
         end
     end

@@ -56,10 +56,10 @@ the published beam-tracing papers (no Fortran needed): cold-plasma paraxial
 beam tracing (`src/dispersion.jl`, `src/beam_tracing.jl`), absorption from the
 exactly relativistic anti-Hermitian dielectric tensor in the weak-damping
 approximation (`src/absorption.jl`), and deposition profiles from the beam's
-Gaussian cross-section (`src/deposition.jl`). Against the Fortran it reproduces
-the rays to a few mm and the deposition on DIII-D-like (2 keV) cases closely;
-at ITER temperatures the deposition is at the right place but narrower, since
-the warm Hermitian corrections of the dispersion are not included yet. Current
+Gaussian cross-section, with each part of the cross-section deposited where its
+own path meets the resonance (`src/deposition.jl`). Against the Fortran it
+reproduces the rays to a few mm and the deposition profiles (location, width,
+shape) on both DIII-D-like (2 keV) and ITER-like (25 keV) cases. Current
 drive (`src/current_drive.jl`) uses the adjoint method with a response function
 solved numerically from the bounce-averaged adjoint Fokker-Planck equation on
 each flux surface (relativistic test-particle collisions, Z_eff, trapping from
