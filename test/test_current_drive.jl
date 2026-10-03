@@ -55,7 +55,7 @@
                 # (Julia ncdroutine=2: rescaled by the full-operator Spitzer function) vs Fortran ncdroutine=2.
                 # Second-harmonic O-mode is skipped: its weak absorption straddles the cold resonance,
                 # and which side dominates (hence the sign) depends on the warm corrections of stage 3b.
-                for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.65))
+                for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.3))
                     p = TORBEAM.TorbeamParams(; (Symbol(k) => v isa String ? Symbol(v) : v for (k, v) in golden["params"])..., backend=:julia, ncdroutine=ncdr)
                     inputs = TORBEAM.beam_inputs(dd, ibeam, p, eq)
                     out = TORBEAM.run_beam(inputs, p)
@@ -89,4 +89,33 @@ end
         @test 0.95 < TORBEAM.spitzer_ratio(sp, 6.0) < 1.15
         @test TORBEAM.spitzer_ratio(sp, 1.0) > TORBEAM.spitzer_ratio(sp, 3.0) > 1
     end
+end
+
+@testset "full-operator response" begin
+    # uniform field: the 2-D solver reproduces the 1-D Spitzer function (which has
+    # energy diffusion and the field term) at thermal energies, where the
+    # relativistic γ factors are ~1
+    n = 64
+    for (Z, Te) in ((2.0, 20.0), (1.0, 5.0))
+        μ = 510.99895 / Te
+        uT = sqrt(2 / μ)
+        fs = TORBEAM.FluxSurface(0.5, fill(6.0, n), zeros(n), fill(5.0, n), fill(0.1, n), 5.0, 5.0, 1.0)
+        sp = TORBEAM.SpitzerFunction1D(Z)
+        sf = TORBEAM.full_operator_response(fs, Z, μ)
+        for u in (0.3uT, 0.7uT, 1.0uT)
+            D1 = sp.D[argmin(abs.(sp.x .- u / uT))]
+            @test TORBEAM.chi(sf, u, 0.64) / 0.6 ≈ uT^4 * D1 rtol = 0.06
+        end
+        # the field term enhances the response
+        sft = TORBEAM.full_operator_response(fs, Z, μ; field=false)
+        @test TORBEAM.chi(sf, 0.7uT, 0.64) > 1.2 * TORBEAM.chi(sft, 0.7uT, 0.64)
+    end
+    # trapped surface: vanishes at the trapped boundary, odd structure preserved
+    dd = IMAS.json2imas(joinpath(@__DIR__, "data", "ITER.json"))
+    inputs = TORBEAM.beam_inputs(dd, 1, TORBEAM.TorbeamParams(), TORBEAM.equilibrium_inputs(dd))
+    m = TORBEAM.PlasmaModel(inputs)
+    fs = TORBEAM.FluxSurface(m, 0.5)
+    sf = TORBEAM.full_operator_response(fs, m.Zeff, 510.99895 / TORBEAM.temperature(m, 0.5))
+    @test abs(TORBEAM.chi(sf, 0.3, fs.λc)) < 1e-3 * abs(TORBEAM.chi(sf, 0.3, 0.0))
+    @test TORBEAM.chi(sf, 0.3, 0.0) > TORBEAM.chi(sf, 0.2, 0.0) > TORBEAM.chi(sf, 0.1, 0.0) > 0
 end

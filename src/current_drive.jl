@@ -21,6 +21,8 @@
 # (λ > λ_c = B_min/B_max), and the equation is marched in u from χ(0) = 0 with
 # an implicit tridiagonal solve in λ. χ̂ = ν₀ χ is stored (dimensionless).
 
+import SparseArrays
+
 """
     FluxSurface(m::PlasmaModel, ρ; nθ=180)
 
@@ -120,18 +122,12 @@ struct SpitzerFunction{S}
 end
 
 """
-    SpitzerFunction(fs::FluxSurface, Zeff; nu=300, nλ=200, umax=1.5, spitzer=nothing, μ=Inf)
+    SpitzerFunction(fs::FluxSurface, Zeff; nu=300, nλ=200, umax=1.5)
 
-Solve the bounce-averaged adjoint equation (see the file header) on the surface.
-
-With `spitzer::SpitzerFunction1D` (the uniform-plasma Spitzer function with the
-full linearized collision operator) and `μ = mc²/Te`, the solution is rescaled by
-`spitzer_ratio(spitzer, u sqrt(μ/2))`, so that its u-dependence is that of the
-full operator (electron-electron momentum conservation, energy diffusion, exact
-thermal rates) while the pitch-angle/trapping structure is that of the
-bounce-averaged Lorentz model — exact in a uniform field.
+Lorentz-model response: solve the bounce-averaged adjoint equation (see the
+file header) on the surface by marching in u
 """
-function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200, umax::Float64=1.5, spitzer=nothing, μ::Real=Inf)
+function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200, umax::Float64=1.5)
     us = range(0.0, umax; length=nu)
     # λ grid clustered towards the trapped boundary, where χ ∝ sqrt(λc - λ)
     ts = range(0.0, 1.0; length=nλ)
@@ -176,14 +172,127 @@ function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200,
         end
         χ[iu, 1:n] = tridiagonal_solve(lower, diag, upper, rhs)
     end
-    if spitzer !== nothing
-        @assert isfinite(μ) "the Spitzer rescaling needs μ = mc²/Te"
-        for iu in 2:nu
-            χ[iu, :] .*= spitzer_ratio(spitzer, us[iu] * sqrt(μ / 2))
-        end
-    end
     # spline on the (u, t) grid; evaluation maps λ -> t
     spl = Interpolations.cubic_spline_interpolation((us, ts), χ; extrapolation_bc=Interpolations.Line())
+    return SpitzerFunction(fs, spl, umax)
+end
+
+"""
+    full_operator_response(fs::FluxSurface, Zeff, μ; nu=200, nλ=150, umax=1.5, nbasis=30, field=true)
+
+Full-operator response (a `SpitzerFunction`) on the surface, `μ = mc²/Te` (see the file header).
+`nbasis` hat functions represent the l = 1 moment in the Schur complement;
+`field=false` keeps only the test-particle part.
+"""
+function full_operator_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=200, nλ::Int=150, umax::Float64=1.5, nbasis::Int=30, field::Bool=true)
+    uT = sqrt(2 / μ)                      # thermal velocity v_T/c
+    c3 = 1 / uT^3                         # ν̂/ν₀
+    us = collect(range(0.0, umax; length=nu + 1))[2:end]
+    du = us[2] - us[1]
+    ts = range(0.0, 1.0; length=nλ)
+    λs = fs.λc .* (1 .- (1 .- ts) .^ 2)
+    λh = [0.5 * (λs[k] + λs[k+1]) for k in 1:nλ-1]
+    Ih = [bounce_integrals(fs, λ)[1] for λ in λh]
+    JL = [bounce_integrals(fs, λ) for λ in λs[1:nλ-1]]
+    J = [x[2] for x in JL]
+    L = [x[3] for x in JL]
+    ξbar = L ./ J
+    nk = nλ - 1
+    am = zeros(nk)
+    ap = zeros(nk)
+    for k in 1:nk
+        hp = λs[k+1] - λs[k]
+        hm = k == 1 ? hp : λs[k] - λs[k-1]
+        hc = 0.5 * (hp + hm)
+        ap[k] = λh[k] * Ih[k] / (hp * hc)
+        am[k] = k == 1 ? 0.0 : λh[k-1] * Ih[k-1] / (hm * hc)
+    end
+    # exact thermal rates (Chandrasekhar) with the relativistic γ factors of the high-velocity limit
+    function rates(u)
+        x = u / uT
+        γ = sqrt(1 + u^2)
+        φ = erf(x)
+        G = chandrasekhar(x)
+        return (νs=c3 * 2G / x * γ^2, νpar=c3 * 2G / x^3 * γ, νD=c3 * γ * (φ - G + Zeff) / x^3)
+    end
+    idx(i, k) = (k - 1) * nu + i
+    N = nu * nk
+    rows = Int[]
+    cols = Int[]
+    vals = Float64[]
+    for k in 1:nk, i in 1:nu
+        r = idx(i, k)
+        u = us[i]
+        γ = sqrt(1 + u^2)
+        # u part of C(f_M χ)/f_M: (u³P)'/u² - (μu²/γ)P with P = νs χ + ½νpar u (χ' - (μu/γ)χ),
+        # conservative on the half points; χ₀ = 0 at u = 0, ghost χ ∝ u⁴ beyond umax
+        coef = zeros(3)                  # offsets -1, 0, +1
+        for sgn in (+1, -1)
+            uh = u + sgn * du / 2
+            rh = rates(uh)
+            γh = sqrt(1 + uh^2)
+            a_i = rh.νs / 2 + 0.5 * rh.νpar * uh * (-sgn / du - (μ * uh / γh) / 2)
+            a_n = rh.νs / 2 + 0.5 * rh.νpar * uh * (sgn / du - (μ * uh / γh) / 2)
+            w = sgn * uh^3 / (du * u^2) - (μ * u^2 / γ) / 2
+            coef[2] += w * a_i
+            coef[2+sgn] += w * a_n
+        end
+        for (off, v) in zip((-1, 0, 1), coef)
+            j = i + off
+            if j == 0
+                continue
+            elseif j == nu + 1
+                push!(rows, r); push!(cols, idx(i, k)); push!(vals, v * (1 + 4du / u))
+            else
+                push!(rows, r); push!(cols, idx(j, k)); push!(vals, v)
+            end
+        end
+        # pitch-angle part: (νD/2)(4/J_k)[am χ_{k-1} - (am+ap) χ_k + ap χ_{k+1}]
+        a = 4 / J[k] * rates(u).νD / 2
+        push!(rows, r); push!(cols, r); push!(vals, -a * (am[k] + ap[k]))
+        k > 1 && (push!(rows, r); push!(cols, idx(i, k - 1)); push!(vals, a * am[k]))
+        k < nk && (push!(rows, r); push!(cols, idx(i, k + 1)); push!(vals, a * ap[k]))
+    end
+    A = SparseArrays.sparse(rows, cols, vals, N, N)
+    Alu = SparseArrays.lu(A)
+    source(f::AbstractVector) = vec([-ξbar[k] * f[i] for i in 1:nu, k in 1:nk])
+    χv = Alu \ source(us)
+    if field
+        # l = 1 moment at the outboard point: g₁(u) = (3/2)∫₀^λc χ dλ
+        wλ = zeros(nk)
+        for k in 1:nk
+            lo = k == 1 ? λs[1] : 0.5 * (λs[k-1] + λs[k])
+            hi = 0.5 * (λs[k] + λs[k+1])
+            wλ[k] = 1.5 * (hi - lo)
+        end
+        moment(v) = reshape(v, nu, nk) * wλ
+        F1 = c3 .* field_matrix(us ./ uT)
+        # Schur complement on nb hat functions: g₁ = Σ c_j B_j, χ = χ₀ + Σ c_j Ψ_j,
+        # Ψ_j = A⁻¹ source(F₁ B_j), c from collocation of g₁ = moment(χ) at the coarse nodes
+        nb = min(nbasis, nu)
+        cj = round.(Int, range(1, nu; length=nb))
+        B = zeros(nu, nb)
+        for j in 1:nb
+            lo = j == 1 ? cj[1] : cj[j-1]
+            hi = j == nb ? cj[nb] : cj[j+1]
+            for i in lo:hi
+                B[i, j] = i <= cj[j] ? (lo == cj[j] ? 1.0 : (i - lo) / (cj[j] - lo)) : (hi - i) / (hi - cj[j])
+            end
+        end
+        Ψ = zeros(N, nb)
+        for j in 1:nb
+            Ψ[:, j] = Alu \ source(F1 * B[:, j])
+        end
+        Kc = zeros(nb, nb)
+        for j in 1:nb
+            Kc[:, j] = moment(Ψ[:, j])[cj]
+        end
+        c = (I - Kc) \ moment(χv)[cj]
+        χv += Ψ * c
+    end
+    χ = zeros(nu + 1, nλ)                 # u = 0 row and λ = λc column are 0
+    χ[2:end, 1:nk] = reshape(χv, nu, nk)
+    spl = Interpolations.cubic_spline_interpolation((range(0.0, umax; length=nu + 1), ts), χ; extrapolation_bc=Interpolations.Line())
     return SpitzerFunction(fs, spl, umax)
 end
 
@@ -305,26 +414,21 @@ function cd_resonance(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Real, e::Ab
     return num, den
 end
 
-"""
-    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=25)
-
-Spitzer functions on `nρ` flux surfaces ρ_pol ∈ (0, 1), for interpolation along the ray
-"""
 struct CurrentDriveTable
     ρ::Vector{Float64}
     sf::Vector{SpitzerFunction}
 end
 
 """
-    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=40, nλ=300, full_operator=true)
+    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=40, full_operator=true)
 
-With `full_operator` the responses carry the u-dependence of the full linearized
-collision operator (see `SpitzerFunction`), using the surface temperature
+Responses on `nρ` surfaces: with `full_operator` those of the full linearized
+collision operator (using the surface temperature), else the Lorentz model
 """
-function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=40, nλ::Int=300, full_operator::Bool=true)
+function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=40, full_operator::Bool=true)
     ρs = collect(range(0.04, 0.98; length=nρ))
-    spitzer = full_operator ? SpitzerFunction1D(Zeff) : nothing
-    sfs = [SpitzerFunction(FluxSurface(m, ρ), Zeff; nλ, spitzer, μ=510.99895 / max(temperature(m, ρ), 1e-3)) for ρ in ρs]
+    sfs = [full_operator ? full_operator_response(FluxSurface(m, ρ), Zeff, 510.99895 / max(temperature(m, ρ), 1e-3)) :
+           SpitzerFunction(FluxSurface(m, ρ), Zeff; nλ=300) for ρ in ρs]
     return CurrentDriveTable(ρs, sfs)
 end
 

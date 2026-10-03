@@ -66,11 +66,12 @@ each flux surface (relativistic test-particle collisions, Z_eff, trapping from
 the real field variation). With `ncdroutine=1` this is the Lorentz-model
 response (TORBEAM's Lin-Liu routine without momentum conservation, agreement
 within ~20% for beams that drive significant current); with `ncdroutine=2`
-(default) its velocity dependence is replaced by that of the Spitzer function
-of the full linearized collision operator (`src/spitzer.jl`, non-relativistic,
-reproducing the Spitzer-Härm conductivity ratios), which captures the
-momentum-conservation enhancement at thermal energies — within ~20% of TORBEAM
-on DIII-D and overestimating it by up to ~50% on low-N∥ ITER launches.
+(default) the response is that of the full linearized collision operator —
+exact thermal rates with energy diffusion and the electron-electron
+field-particle term (whose uniform-plasma limit, `src/spitzer.jl`,
+reproduces the Spitzer-Härm conductivity ratios) — solved in the real trapped
+geometry; it reproduces TORBEAM's momentum-conserving current within ~25% on
+ITER-like and ~7% on DIII-D-like cases.
 
 The run is split into three steps that a backend plugs into:
 
