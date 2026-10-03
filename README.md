@@ -51,6 +51,17 @@ Outputs are stored in the `waves` and the `core_sources` IDS.
 `libtorbeamB.so`, found through `TORBEAM_DIR` (`$TORBEAM_DIR/../lib/libtorbeamB.so`).
 `TORBEAM.fortran_available()` tells whether the library can be found.
 
+`TorbeamParams(backend=:julia)` runs a pure-Julia implementation written from
+the published beam-tracing papers (no Fortran needed): cold-plasma paraxial
+beam tracing (`src/dispersion.jl`, `src/beam_tracing.jl`), absorption from the
+exactly relativistic anti-Hermitian dielectric tensor in the weak-damping
+approximation (`src/absorption.jl`), and deposition profiles from the beam's
+Gaussian cross-section (`src/deposition.jl`). Against the Fortran it reproduces
+the rays to a few mm and the deposition on DIII-D-like (2 keV) cases closely;
+at ITER temperatures the deposition is at the right place but narrower, since
+the warm Hermitian corrections of the dispersion are not included yet. Current
+drive is not implemented yet (zero).
+
 The run is split into three steps that a backend plugs into:
 
 - `equilibrium_inputs(dd)` / `beam_inputs(dd, ibeam, params, eq)` assemble the

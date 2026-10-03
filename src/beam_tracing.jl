@@ -10,12 +10,13 @@
 #
 # Here everything is integrated in arclength s along the central ray
 # (ds = |∂H/∂N| dτ). State vector: x (3), N (3), Re M and Im M (6 + 6, upper
-# triangle). SI units; M in 1/m.
+# triangle), optical depth τ (power P = P0 exp(-τ)). SI units; M in 1/m.
 
 using OrdinaryDiffEqTsit5
 import LinearAlgebra: dot, norm, cross, eigen, Symmetric, I
 
-const NSTATE = 18
+const NSTATE = 19
+const TAU_STOP = log(1e7)   # stop once less than 1e-7 of the power is left
 const M_IDX = ((1, 1), (1, 2), (1, 3), (2, 2), (2, 3), (3, 3))
 
 function pack_M!(u::AbstractVector, M::AbstractMatrix)
@@ -98,9 +99,10 @@ end
 struct BeamTracer{PM<:PlasmaModel}
     model::PM
     wave::WaveParams
-    res::Any   # ForwardDiff DiffResults.HessianResult cache
+    nmax::Int          # harmonics in the absorption (0 = no absorption)
+    res::Any           # ForwardDiff DiffResults.HessianResult cache
 end
-BeamTracer(model::PlasmaModel, wave::WaveParams) = BeamTracer(model, wave, ForwardDiff.DiffResults.HessianResult(zeros(6)))
+BeamTracer(model::PlasmaModel, wave::WaveParams; nmax::Int=3) = BeamTracer(model, wave, nmax, ForwardDiff.DiffResults.HessianResult(zeros(6)))
 
 """
     beam_rhs!(du, u, tracer::BeamTracer, s)
@@ -122,6 +124,13 @@ function beam_rhs!(du, u, tracer::BeamTracer, s)
     HNN = @view Hh[4:6, 4:6]
     dM = -(Hxx + HxN * M + M * HxN' + M * HNN * M) / vnorm
     pack_M!(du, dM)
+    # optical depth
+    if tracer.nmax > 0
+        st = state(tracer.model, u[1], u[2], u[3])
+        du[19] = absorption_coefficient(st, tracer.wave, u[4:6], gN; nmax=tracer.nmax)
+    else
+        du[19] = 0.0
+    end
     return du
 end
 
@@ -129,7 +138,7 @@ end
     BeamSolution
 
 Result of `trace_beam`: the `OrdinaryDiffEq` solution (dense in arclength),
-the launch, the total arclength and the exit reason (`:rhostop`, `:grid`, `:length`)
+the launch, the total arclength and the exit reason (`:absorbed`, `:rhostop`, `:grid`, `:length`)
 """
 struct BeamSolution{S}
     sol::S
@@ -139,14 +148,16 @@ struct BeamSolution{S}
 end
 
 """
-    trace_beam(m::PlasmaModel, l::Launch; rhostop=0.96, reltol=1e-7, abstol=1e-7, smax=20.0)
+    trace_beam(m::PlasmaModel, l::Launch; rhostop=0.96, nmax=3, reltol=1e-7, abstol=1e-7, smax=20.0)
 
-Integrate the central ray and the beam matrix from the launch point until the
-beam, having entered the plasma, reaches `rhostop` on its way out, leaves the
-equilibrium grid, or exceeds `smax` [m] of arclength.
+Integrate the central ray, the beam matrix and the optical depth from the
+launch point until the power is absorbed (`TAU_STOP`), the beam, having
+entered the plasma, reaches `rhostop` on its way out, leaves the equilibrium
+grid, or exceeds `smax` [m] of arclength. `nmax` harmonics are included in the
+absorption (`nmax = 0` switches it off).
 """
-function trace_beam(m::PlasmaModel, l::Launch; rhostop::Float64=0.96, reltol::Float64=1e-7, abstol::Float64=1e-7, smax::Float64=20.0)
-    tracer = BeamTracer(m, l.wave)
+function trace_beam(m::PlasmaModel, l::Launch; rhostop::Float64=0.96, nmax::Int=3, reltol::Float64=1e-7, abstol::Float64=1e-7, smax::Float64=20.0)
+    tracer = BeamTracer(m, l.wave; nmax)
     u0 = initial_state(l)
     exit = Ref(:length)
 
@@ -160,6 +171,8 @@ function trace_beam(m::PlasmaModel, l::Launch; rhostop::Float64=0.96, reltol::Fl
     rho_cb = ContinuousCallback((u, s, integ) -> (inside[] ? ρ_of(u) - rhostop : -1.0),
         integ -> (exit[] = :rhostop; terminate!(integ)), nothing)
     inside_cb = DiscreteCallback(track_inside, integ -> nothing)
+    tau_cb = ContinuousCallback((u, s, integ) -> u[19] - TAU_STOP,
+        integ -> (exit[] = :absorbed; terminate!(integ)), nothing)
     grid_cb = DiscreteCallback((u, s, integ) -> begin
             R = hypot(u[1], u[2])
             !(m.R[1] <= R <= m.R[end] && m.Z[1] <= u[3] <= m.Z[end])
@@ -167,9 +180,16 @@ function trace_beam(m::PlasmaModel, l::Launch; rhostop::Float64=0.96, reltol::Fl
         integ -> (exit[] = :grid; terminate!(integ)))
 
     prob = ODEProblem(beam_rhs!, u0, (0.0, smax), tracer)
-    sol = solve(prob, Tsit5(); reltol, abstol, callback=CallbackSet(inside_cb, rho_cb, grid_cb), dtmax=0.02)
+    sol = solve(prob, Tsit5(); reltol, abstol, callback=CallbackSet(inside_cb, rho_cb, tau_cb, grid_cb), dtmax=0.01)
     return BeamSolution(sol, l, sol.t[end], exit[])
 end
+
+"""
+    power(b::BeamSolution, s)
+
+Power [W] left in the beam at arclength `s`
+"""
+power(b::BeamSolution, s::Real) = b.launch.power * exp(-b.sol(s)[19])
 
 """
     beam_widths(b::BeamSolution, s; perp=:v)

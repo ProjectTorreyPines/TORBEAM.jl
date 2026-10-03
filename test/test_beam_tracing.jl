@@ -70,7 +70,7 @@ end
                 inputs = TORBEAM.beam_inputs(dd, ibeam, params, eq)
                 m = TORBEAM.PlasmaModel(inputs)
                 l = TORBEAM.Launch(inputs)
-                b = TORBEAM.trace_beam(m, l; rhostop=params.rhostop)
+                b = TORBEAM.trace_beam(m, l; rhostop=params.rhostop, nmax=0)   # geometry only: no absorption
                 g = golden_ray(gb)
                 # central ray position along the common arclength
                 smax = min(b.length, g.s[end])
@@ -82,8 +82,8 @@ end
                 end
                 @info "$case $(gb["name"]): ray deviation max $(round(maximum(dev)*100; digits=2)) cm over $(round(smax; digits=2)) m, length $(round(b.length; digits=3)) vs $(round(g.s[end]; digits=3)) m ($(b.exit))"
                 @test maximum(dev) < 0.01
-                # the Fortran stops once the power is absorbed; without absorption (stage 3)
-                # our ray can only be longer
+                # the Fortran stops once the power is absorbed; without absorption our ray
+                # can only be longer
                 @test b.length >= g.s[end] - 0.05
                 # beam widths: cuts by the horizontal (wh) and poloidal (wp) planes. They
                 # agree to a few % where the beam crosses smooth profile regions, but are

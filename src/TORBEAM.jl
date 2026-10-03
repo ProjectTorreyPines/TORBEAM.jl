@@ -27,7 +27,7 @@ Base.@kwdef struct TorbeamParams
     xzsrch::Float64 = 0.0     # Vertical position for searching the magnetic axis (default 0 cm)
 
     # backend
-    backend::Symbol = :fortran # :fortran calls libtorbeamB.so (needs TORBEAM_DIR)
+    backend::Symbol = :fortran # :fortran calls libtorbeamB.so (needs TORBEAM_DIR); :julia is the pure-Julia implementation
 end
 
 # Array sizes from libtorbeam/src/libsrc/dimensions.f90
@@ -91,7 +91,10 @@ end
 
 include("model.jl")
 include("dispersion.jl")
+include("absorption.jl")
 include("beam_tracing.jl")
+include("deposition.jl")
+include("julia_backend.jl")
 
 """
     equilibrium_inputs(dd::IMAS.dd)
@@ -271,8 +274,10 @@ Run TORBEAM for one launcher with the backend selected in `torbeam_params`.
 function run_beam(inputs::BeamInputs, torbeam_params::TorbeamParams)
     if torbeam_params.backend == :fortran
         return fortran_beam(inputs, torbeam_params)
+    elseif torbeam_params.backend == :julia
+        return julia_beam(inputs, torbeam_params)
     else
-        error("TORBEAM backend `$(torbeam_params.backend)` not implemented (available: :fortran)")
+        error("TORBEAM backend `$(torbeam_params.backend)` not implemented (available: :fortran, :julia)")
     end
 end
 
