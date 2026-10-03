@@ -45,6 +45,32 @@ Outputs are stored in the `waves` and the `core_sources` IDS.
         xzsrch::Float64 = 0.0     # Vertical position for searching the magnetic axis (default 0 cm)
     end
 
+## Backends
+
+`TorbeamParams(backend=:fortran)` (default) calls the `beam` routine of
+`libtorbeamB.so`, found through `TORBEAM_DIR` (`$TORBEAM_DIR/../lib/libtorbeamB.so`).
+`TORBEAM.fortran_available()` tells whether the library can be found.
+
+The run is split into three steps that a backend plugs into:
+
+- `equilibrium_inputs(dd)` / `beam_inputs(dd, ibeam, params, eq)` assemble the
+  TORBEAM input vectors (`BeamInputs`) from IMAS,
+- `run_beam(inputs, params)` runs one launcher and returns the raw `BeamOutputs`,
+- `run_torbeam(dd, params)` drives all launchers and writes `waves` / `core_sources`.
+
+## Tests and golden data
+
+`test/data/<case>.json` are trimmed `dd`s (equilibrium, core profiles, several EC
+beam variants) and `test/goldens/<case>.json` the raw `BeamOutputs` the Fortran
+library produced for them. `Pkg.test()` always checks the Julia-side input
+assembly against the goldens, and additionally the Fortran backend when
+`TORBEAM_DIR` points at the library (on omega: `module load torbeam`).
+
+To regenerate the goldens (needs FUSE, run on omega):
+
+    module load torbeam/gcc11.x
+    julia --project=<env with FUSE, JSON and this package dev'ed> test/goldens/generate.jl
+
 ## Usage instructions for Omega
 
 Load the TORBEAM module with `module load torbeam` before using it.
