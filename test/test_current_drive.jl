@@ -55,7 +55,7 @@
                 # (Julia ncdroutine=2: rescaled by the full-operator Spitzer function) vs Fortran ncdroutine=2.
                 # Second-harmonic O-mode: the sign is tested, the magnitude is not — its weak absorption
                 # (Julia 1.40 vs Fortran 1.25 MW) straddles the cold resonance and the current follows it.
-                for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.3))
+                for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.2))
                     p = TORBEAM.TorbeamParams(; (Symbol(k) => v isa String ? Symbol(v) : v for (k, v) in golden["params"])..., backend=:julia, ncdroutine=ncdr)
                     inputs = TORBEAM.beam_inputs(dd, ibeam, p, eq)
                     out = TORBEAM.run_beam(inputs, p)
@@ -110,6 +110,24 @@ end
         sft = TORBEAM.full_operator_response(fs, Z, μ; field=false)
         @test TORBEAM.chi(sf, 0.7uT, 0.64) > 1.2 * TORBEAM.chi(sft, 0.7uT, 0.64)
     end
+    # suprathermal electrons: the test-particle-only response must stay above the Lorentz one
+    # (exact thermal rates lie below their 1/u³ asymptotes) and tend to it from above, with only
+    # a weak dependence on μ at fixed x = u/u_T — the γ² drag and the γ³ energy diffusion then
+    # cancel on the relativistic Maxwellian (detailed balance); with the non-relativistic γ of the
+    # energy diffusion the leftover drag drove the ratio to 0.85 at x = 3 for μ = 51
+    fs = TORBEAM.FluxSurface(0.5, fill(6.0, n), zeros(n), fill(5.0, n), fill(0.1, n), 5.0, 5.0, 1.0)
+    ratios = Dict{Float64,Vector{Float64}}()
+    for (μ, umax) in ((51.1, 1.5), (200.0, 1.0))
+        uT = sqrt(2 / μ)
+        sfL = TORBEAM.SpitzerFunction(fs, 1.0; nu=1500)
+        sfT = TORBEAM.full_operator_response(fs, 1.0, μ; umax, field=false)
+        r = [TORBEAM.chi(sfT, x * uT, 0.0) / TORBEAM.chi(sfL, x * uT, 0.0) for x in (2, 3, 4)]
+        @test all(1.0 .< r .< 1.7)
+        @test issorted(r; rev=true)
+        ratios[μ] = r
+    end
+    @test abs(ratios[51.1][2] - ratios[200.0][2]) < 0.05 * ratios[200.0][2]
+
     # trapped surface: vanishes at the trapped boundary, odd structure preserved
     dd = IMAS.json2imas(joinpath(@__DIR__, "data", "ITER.json"))
     inputs = TORBEAM.beam_inputs(dd, 1, TORBEAM.TorbeamParams(), TORBEAM.equilibrium_inputs(dd))
@@ -117,5 +135,35 @@ end
     fs = TORBEAM.FluxSurface(m, 0.5)
     sf = TORBEAM.full_operator_response(fs, m.Zeff, 510.99895 / TORBEAM.temperature(m, 0.5))
     @test abs(TORBEAM.chi(sf, 0.3, fs.λc)) < 1e-3 * abs(TORBEAM.chi(sf, 0.3, 0.0))
+
+    # neoclassical conductivity: the Spitzer problem on the real surfaces, driven by E∥ ∝ B and
+    # measured as ⟨j∥B⟩/⟨E∥B⟩, is c_b = ∮b dl/∮dl times the solver's response to its unweighted
+    # drive. Lorentz gas (pitch-angle scattering only): exactly 1 - f_t with the effective trapped
+    # fraction; full operator: the Sauter et al. (1999) collisionless fit to within a few %
+    fsavg(fs, A) = sum(A .* fs.dl ./ fs.B) / sum(fs.dl ./ fs.B)
+    function trapped_fraction(fs)
+        b = fs.B ./ fs.Bmin
+        λs = range(0, fs.λc; length=2001)
+        return 1 - 0.75 * fsavg(fs, b .^ 2) * sum(λ / fsavg(fs, sqrt.(max.(1 .- λ .* b, 0.0))) for λ in λs) * step(λs)
+    end
+    function jmoment(sf, μ, λc)
+        us = range(0, 1.2; length=301)[2:end]
+        λs = range(0, λc; length=300)
+        return sum(u^3 / sqrt(1 + u^2) * exp(-μ * (sqrt(1 + u^2) - 1)) * sum(TORBEAM.chi(sf, u, λ) for λ in λs) for u in us)
+    end
+    fsu = TORBEAM.FluxSurface(0.5, fill(6.0, n), zeros(n), fill(5.0, n), fill(0.1, n), 5.0, 5.0, 1.0)
+    for ρ in (0.45, 0.775)
+        fs = TORBEAM.FluxSurface(m, ρ)
+        μ = 510.99895 / TORBEAM.temperature(m, ρ)
+        cb = sum(fs.B ./ fs.Bmin .* fs.dl) / sum(fs.dl)
+        ft = trapped_fraction(fs)
+        σL = cb * fs.λc * jmoment(TORBEAM.full_operator_response(fs, 1e4, μ; field=false), μ, fs.λc) / jmoment(TORBEAM.full_operator_response(fsu, 1e4, μ; field=false), μ, 1.0)
+        @test σL ≈ 1 - ft rtol = 0.01
+        for Z in (1.0, m.Zeff)
+            σ = cb * fs.λc * jmoment(TORBEAM.full_operator_response(fs, Z, μ), μ, fs.λc) / jmoment(TORBEAM.full_operator_response(fsu, Z, μ), μ, 1.0)
+            sauter = 1 - (1 + 0.36 / Z) * ft + 0.59 / Z * ft^2 - 0.23 / Z * ft^3
+            @test σ ≈ sauter rtol = 0.06
+        end
+    end
     @test TORBEAM.chi(sf, 0.3, 0.0) > TORBEAM.chi(sf, 0.2, 0.0) > TORBEAM.chi(sf, 0.1, 0.0) > 0
 end

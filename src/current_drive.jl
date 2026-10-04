@@ -207,13 +207,18 @@ function full_operator_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=2
         ap[k] = λh[k] * Ih[k] / (hp * hc)
         am[k] = k == 1 ? 0.0 : λh[k-1] * Ih[k-1] / (hm * hc)
     end
-    # exact thermal rates (Chandrasekhar) with the relativistic γ factors of the high-velocity limit
+    # exact thermal rates (Chandrasekhar) with the relativistic γ factors of the high-velocity
+    # limit: slowing-down νs = c3 (2G/x) γ², pitch-angle νD = c3 γ (φ - G + Z)/x³ (as in the Lorentz
+    # march), and the energy diffusion fixed by detailed balance on the relativistic Maxwellian,
+    # D = ½νpar u² = νs γ/μ, i.e. νpar = c3 (2G/x³) γ³ — with the γ of the non-relativistic form
+    # the drag and the diffusion acting on f_M no longer cancel and the leftover νs(1 - 1/γ²)
+    # acts as a spurious drag on suprathermal electrons
     function rates(u)
         x = u / uT
         γ = sqrt(1 + u^2)
         φ = erf(x)
         G = chandrasekhar(x)
-        return (νs=c3 * 2G / x * γ^2, νpar=c3 * 2G / x^3 * γ, νD=c3 * γ * (φ - G + Zeff) / x^3)
+        return (νpar=c3 * 2G / x^3 * γ^3, νD=c3 * γ * (φ - G + Zeff) / x^3)
     end
     idx(i, k) = (k - 1) * nu + i
     N = nu * nk
@@ -224,15 +229,16 @@ function full_operator_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=2
         r = idx(i, k)
         u = us[i]
         γ = sqrt(1 + u^2)
-        # u part of C(f_M χ)/f_M: (u³P)'/u² - (μu²/γ)P with P = νs χ + ½νpar u (χ' - (μu/γ)χ),
-        # conservative on the half points; χ₀ = 0 at u = 0, ghost χ ∝ u⁴ beyond umax
+        # u part of C(f_M χ)/f_M: (u³P)'/u² - (μu²/γ)P with P = ½νpar u χ' — the drag νs χ and the
+        # diffusion acting on f_M, -½νpar u (μu/γ) χ, cancel identically by detailed balance, so the
+        # operator is pure diffusion; conservative on the half points, χ₀ = 0 at u = 0, ghost χ ∝ u⁴
+        # beyond umax
         coef = zeros(3)                  # offsets -1, 0, +1
         for sgn in (+1, -1)
             uh = u + sgn * du / 2
             rh = rates(uh)
-            γh = sqrt(1 + uh^2)
-            a_i = rh.νs / 2 + 0.5 * rh.νpar * uh * (-sgn / du - (μ * uh / γh) / 2)
-            a_n = rh.νs / 2 + 0.5 * rh.νpar * uh * (sgn / du - (μ * uh / γh) / 2)
+            a_i = -0.5 * rh.νpar * uh * sgn / du
+            a_n = 0.5 * rh.νpar * uh * sgn / du
             w = sgn * uh^3 / (du * u^2) - (μ * u^2 / γ) / 2
             coef[2] += w * a_i
             coef[2+sgn] += w * a_n
@@ -266,7 +272,11 @@ function full_operator_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=2
             wλ[k] = 1.5 * (hi - lo)
         end
         moment(v) = reshape(v, nu, nk) * wλ
-        F1 = c3 .* field_matrix(us ./ uT)
+        # with χ constant along the orbit the local moment is g₁(θ) = b(θ) g₁(outboard) (the
+        # parallel flow follows B), so the field term ξ(θ) F₁g₁(θ) bounce-averages to
+        # ⟨ξ b⟩ F₁ g₁(outboard) = c_b ξ̄ F₁ g₁(outboard) with c_b = ∮ b dl / ∮ dl
+        cb = sum(fs.B ./ fs.Bmin .* fs.dl) / sum(fs.dl)
+        F1 = (cb * c3) .* field_matrix(us ./ uT)
         # Schur complement on nb hat functions: g₁ = Σ c_j B_j, χ = χ₀ + Σ c_j Ψ_j,
         # Ψ_j = A⁻¹ source(F₁ B_j), c from collocation of g₁ = moment(χ) at the coarse nodes
         nb = min(nbasis, nu)
