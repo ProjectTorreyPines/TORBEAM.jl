@@ -13,7 +13,7 @@
 # triangle), optical depth τ (power P = P0 exp(-τ)). SI units; M in 1/m.
 
 using OrdinaryDiffEqTsit5
-import LinearAlgebra: dot, norm, cross, eigen, Symmetric, I, Diagonal
+import LinearAlgebra: dot, norm, cross, eigen, Symmetric, I, Diagonal, det
 
 const NSTATE = 19
 const TAU_STOP = log(1e7)   # stop once less than 1e-7 of the power is left
@@ -100,9 +100,10 @@ struct BeamTracer{PM<:PlasmaModel}
     model::PM
     wave::WaveParams
     nmax::Int          # harmonics in the absorption (0 = no absorption)
+    warm::Bool         # warm dispersion for N⊥ and the polarization in the absorption
     res::Any           # ForwardDiff DiffResults.HessianResult cache
 end
-BeamTracer(model::PlasmaModel, wave::WaveParams; nmax::Int=3) = BeamTracer(model, wave, nmax, ForwardDiff.DiffResults.HessianResult(zeros(6)))
+BeamTracer(model::PlasmaModel, wave::WaveParams; nmax::Int=3, warm::Bool=true) = BeamTracer(model, wave, nmax, warm, ForwardDiff.DiffResults.HessianResult(zeros(6)))
 
 """
     beam_rhs!(du, u, tracer::BeamTracer, s)
@@ -127,7 +128,7 @@ function beam_rhs!(du, u, tracer::BeamTracer, s)
     # optical depth
     if tracer.nmax > 0
         st = state(tracer.model, u[1], u[2], u[3])
-        du[19] = absorption_coefficient(st, tracer.wave, u[4:6], gN; nmax=tracer.nmax)
+        du[19] = absorption_coefficient(st, tracer.wave, u[4:6], gN; nmax=tracer.nmax, warm=tracer.warm)
     else
         du[19] = 0.0
     end
@@ -148,16 +149,17 @@ struct BeamSolution{S}
 end
 
 """
-    trace_beam(m::PlasmaModel, l::Launch; rhostop=0.96, nmax=3, reltol=1e-7, abstol=1e-7, smax=20.0)
+    trace_beam(m::PlasmaModel, l::Launch; rhostop=0.96, nmax=3, warm=true, reltol=1e-7, abstol=1e-7, smax=20.0)
 
 Integrate the central ray, the beam matrix and the optical depth from the
 launch point until the power is absorbed (`TAU_STOP`), the beam, having
 entered the plasma, reaches `rhostop` on its way out, leaves the equilibrium
 grid, or exceeds `smax` [m] of arclength. `nmax` harmonics are included in the
-absorption (`nmax = 0` switches it off).
+absorption (`nmax = 0` switches it off); `warm` selects the warm dispersion for
+N⊥ and the polarization in the absorption.
 """
-function trace_beam(m::PlasmaModel, l::Launch; rhostop::Float64=0.96, nmax::Int=3, reltol::Float64=1e-7, abstol::Float64=1e-7, smax::Float64=20.0)
-    tracer = BeamTracer(m, l.wave; nmax)
+function trace_beam(m::PlasmaModel, l::Launch; rhostop::Float64=0.96, nmax::Int=3, warm::Bool=true, reltol::Float64=1e-7, abstol::Float64=1e-7, smax::Float64=20.0)
+    tracer = BeamTracer(m, l.wave; nmax, warm)
     u0 = initial_state(l)
     exit = Ref(:length)
 

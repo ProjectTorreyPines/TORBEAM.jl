@@ -41,7 +41,8 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Un
     m = cache.model
     l = Launch(inputs)
     nmax = torbeam_params.npow == 0 ? 0 : torbeam_params.nmaxh
-    b = trace_beam(m, l; rhostop=torbeam_params.rhostop, nmax, reltol=torbeam_params.xrtol, abstol=torbeam_params.xatol)
+    warm = torbeam_params.nabsroutine == 1       # warm dispersion for N⊥/polarization (TORBEAM's Farina route)
+    b = trace_beam(m, l; rhostop=torbeam_params.rhostop, nmax, warm, reltol=torbeam_params.xrtol, abstol=torbeam_params.xatol)
 
     # ray points every ~1 cm, as the Fortran stores them
     npts = max(2, min(ceil(Int, b.length / 0.01) + 1, NDAT))
@@ -72,7 +73,7 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Un
 
     if cache.table !== nothing
         table = cache.table
-        efficiency = (u, s) -> cd_efficiency(table, state(m, u[1], u[2], u[3]), l.wave, u[4:6]; nmax)
+        efficiency = (u, s) -> cd_efficiency(table, state(m, u[1], u[2], u[3]), l.wave, u[4:6]; nmax, warm)
     else
         efficiency = nothing
     end

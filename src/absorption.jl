@@ -14,6 +14,7 @@
 
 import SpecialFunctions: besselj, besselkx
 import QuadGK: quadgk
+import LinearAlgebra: dot, norm, cross, eigen, Symmetric, I, det
 
 """
     cold_tensor(X, Y)
@@ -96,14 +97,205 @@ function antihermitian_tensor(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Rea
 end
 
 """
-    absorption_coefficient(st, w::WaveParams, N, v; nmax=3)
+    absorption_coefficient(st, w::WaveParams, N, v; nmax=3, warm=true)
 
 Power absorption coefficient α [1/m] at a plasma `state` `st` for wave vector
-`N` and ray direction `v` (both in the global Cartesian frame)
+`N` and ray direction `v` (both in the global Cartesian frame). With `warm` the
+perpendicular index, the polarization and the wave-matrix derivative come from
+the warm dispersion relation where the plasma is resonant.
 """
-function absorption_coefficient(st, w::WaveParams, N::AbstractVector, v::AbstractVector; nmax::Int=3)
+function absorption_coefficient(st, w::WaveParams, N::AbstractVector, v::AbstractVector; nmax::Int=3, warm::Bool=true)
     X, Y = plasma_XY(st, w)
     (X <= 0 || st.Te <= 0) && return 0.0
+    ws = wave_state(st, w, N; nmax, warm)
+    num = real(dot(ws.e, ws.εa * ws.e))            # e*·ε^a·e
+    num > 0 || return 0.0
+    # ∂λ/∂N in the local frame by central differences of λ(N⊥, N∥) (exact Hellmann-Feynman
+    # for the cold case, and includes ∂ε^h/∂N for the warm one)
+    h = 1e-4
+    dλ_perp = (ws.λ(ws.Nperp + h, ws.Npar) - ws.λ(ws.Nperp - h, ws.Npar)) / (2h)
+    dλ_par = (ws.λ(ws.Nperp, ws.Npar + h) - ws.λ(ws.Nperp, ws.Npar - h)) / (2h)
+    vhat = v ./ norm(v)
+    denom = dot(vhat, ws.xhat) * dλ_perp + dot(vhat, ws.bhat) * dλ_par
+    denom < 0 || return 0.0                        # positive-energy wave: ∂λ/∂N antiparallel to v̂
+    κ = -num / denom
+    return 2 * w.k0 * κ
+end
+
+# ---------------------------------------------------------------------------
+# Warm dispersion: Hermitian part of the relativistic dielectric tensor, warm
+# N⊥ and polarization (TORBEAM's nabsroutine = 1 route)
+# ---------------------------------------------------------------------------
+#
+# ε^h = I + X Σₙ P∫ d³u (u⊥² f'/γ) Tⁿ / (γ - nY - N∥u∥). With E = nY + N∥u∥ the
+# resonant denominator is rationalized, 1/(γ-E) = (γ+E)/Q, Q = γ² - E² a
+# quadratic in u∥ whose real roots are the resonant u∥ (spurious zeros of γ+E for
+# n < 0 carry a vanishing numerator). For each u⊥ the u∥ integral is split into
+# a smooth part — the numerator minus its linear interpolant between the roots —
+# done by Gauss-Legendre, and the principal value of the interpolant over Q,
+# which is a closed form. The residues of the same roots give the anti-Hermitian
+# part, so `hermitian_tensor` is checked against `antihermitian_tensor`.
+
+"""
+    gauss_legendre(n)
+
+Nodes and weights of the n-point Gauss-Legendre rule on [-1, 1] (Golub-Welsch)
+"""
+function gauss_legendre(n::Int)
+    J = zeros(n, n)
+    for i in 1:n-1
+        J[i, i+1] = J[i+1, i] = i / sqrt(4i^2 - 1)
+    end
+    ev = eigen(Symmetric(J))
+    return ev.values, 2 .* ev.vectors[1, :] .^ 2
+end
+
+const GL_PAR = gauss_legendre(100)
+const GL_PERP = gauss_legendre(32)
+
+"""
+    hermitian_tensor(X, Y, Nperp, Npar, μ; nmax=3)
+
+Hermitian part (including the identity) of the relativistic Maxwellian
+dielectric tensor in the local frame, harmonics `-1:nmax` (n ≤ -2 are O(b⁴))
+"""
+function hermitian_tensor(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Real; nmax::Int=3)
+    εh = Matrix{ComplexF64}(I, 3, 3)
+    (X <= 0 || abs(Npar) >= 1) && return εh
+    fnorm = μ / (4π * besselkx(2, μ))
+    c = 1 - Npar^2
+    # velocity ranges where exp(-μ(γ-1)) matters
+    γmax = 1 + 32 / μ
+    L = min(sqrt(γmax^2 - 1), 3.0)
+    tp, wp = GL_PAR
+    tt, wt = GL_PERP
+    for n in -1:nmax                                 # n ≤ -2 contribute O(b⁴) and are dropped
+        A = n^2 * Y^2 + Npar^2 - 1
+        Ures = A > 0 ? min(sqrt(A / c), L) : 0.0     # u⊥ range with real roots (resonance ellipse)
+        acc = zeros(ComplexF64, 3, 3)
+        # u⊥ nodes: [0, Ures] with u⊥ = Ures sin θ (clustered away from the ellipse tip),
+        # then the non-resonant remainder [Ures, L] with plain Gauss-Legendre
+        nodes = Tuple{Float64,Float64}[]
+        if Ures > 0
+            for (tθ, wθ) in zip(tt, wt)
+                θ = (tθ + 1) * π / 4
+                push!(nodes, (Ures * sin(θ), Ures * cos(θ) * π / 4 * wθ))
+            end
+        end
+        if Ures < L
+            for (t, wq) in zip(tt, wt)
+                push!(nodes, (Ures + (L - Ures) * (t + 1) / 2, (L - Ures) / 2 * wq))
+            end
+        end
+        for (uperp, dup) in nodes
+            uperp > 1e-9 || continue
+            b = Nperp * uperp / Y
+            Jn = besselj(n, b)
+            Jnp = 0.5 * (besselj(n - 1, b) - besselj(n + 1, b))
+            nJb = b > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)
+            w1 = -nJb
+            w2 = -im * Jnp
+            # numerator N(u∥) = (u⊥² f'(γ)/γ)(γ+E) T, f' = -μ f_M, as a 3x3 Hermitian matrix
+            function numer(upar)
+                γ = sqrt(1 + uperp^2 + upar^2)
+                E = n * Y + Npar * upar
+                w = [w1, w2, Jn * upar / uperp]
+                return (uperp^2 * (-μ * fnorm * exp(-μ * (γ - 1))) / γ * (γ + E)) .* (w * w')
+            end
+            Q(upar) = c * upar^2 - 2 * n * Y * Npar * upar + (1 + uperp^2 - n^2 * Y^2)
+            disc = n^2 * Y^2 * Npar^2 - c * (1 + uperp^2 - n^2 * Y^2)
+            Iu = zeros(ComplexF64, 3, 3)
+            if disc > 0
+                sd = sqrt(disc)
+                u1 = (n * Y * Npar - sd) / c
+                u2 = (n * Y * Npar + sd) / c
+                N1 = numer(u1)
+                N2 = numer(u2)
+                for (t, wq) in zip(tp, wp)
+                    upar = L * t
+                    Ñ = N1 .+ (N2 .- N1) .* ((upar - u1) / (u2 - u1))
+                    Iu .+= (L * wq) .* ((numer(upar) .- Ñ) ./ Q(upar))
+                end
+                # PV of the interpolant: partial fractions of Ñ / (c (u-u1)(u-u2))
+                Iu .+= N1 ./ (c * (u1 - u2)) .* log(abs((L - u1) / (L + u1)))
+                Iu .+= N2 ./ (c * (u2 - u1)) .* log(abs((L - u2) / (L + u2)))
+            else
+                for (t, wq) in zip(tp, wp)
+                    upar = L * t
+                    Iu .+= (L * wq) .* (numer(upar) ./ Q(upar))
+                end
+            end
+            acc .+= (2π * uperp * dup) .* Iu
+        end
+        εh .+= X .* acc
+    end
+    return (εh .+ εh') ./ 2
+end
+
+"""
+    warm_dispersion(X, Y, Npar, μ, mode, Nperp0; nmax=3)
+
+Real `N⊥` solving `det(NN - N²I + ε^h(N⊥)) = 0` by Newton from the cold root
+`Nperp0`; returns `(Nperp, Dw)` with the warm wave matrix, or the cold values if
+the iteration fails
+"""
+function warm_dispersion(X::Real, Y::Real, Npar::Real, μ::Real, mode::Integer, Nperp0::Real; nmax::Int=3)
+    function wavematrix(Np)
+        N = [Np, 0.0, Npar]
+        return N * N' .- (Np^2 + Npar^2) .* Matrix{ComplexF64}(I, 3, 3) .+ hermitian_tensor(X, Y, Np, Npar, μ; nmax)
+    end
+    f(Np) = real(det(wavematrix(Np)))
+    # secant from the cold root
+    Np0 = Nperp0
+    Np1 = Nperp0 * 1.01 + 1e-4
+    f0 = f(Np0)
+    f1 = f(Np1)
+    Np = Np1
+    for _ in 1:10
+        f1 == f0 && break
+        δ = -f1 * (Np1 - Np0) / (f1 - f0)
+        δ = clamp(δ, -0.2 * max(Np1, 0.1), 0.2 * max(Np1, 0.1))
+        Np = max(Np1 + δ, 1e-6)
+        Np0, f0 = Np1, f1
+        Np1, f1 = Np, f(Np)
+        abs(δ) < 1e-7 && break
+    end
+    if !(isfinite(Np) && 0 < Np < 3 && abs(Np - Nperp0) < 0.5 * max(Nperp0, 0.1))
+        Np = Nperp0
+    end
+    return Np, wavematrix(Np)
+end
+
+"""
+    null_vector(M)
+
+Unit null vector of a (nearly) singular complex 3x3 matrix, from its row cross products
+"""
+function null_vector(M::AbstractMatrix)
+    best = zeros(ComplexF64, 3)
+    bestn = 0.0
+    for (i, j) in ((1, 2), (1, 3), (2, 3))
+        c = cross(M[i, :], M[j, :])
+        nc = norm(c)
+        if nc > bestn
+            best = c / nc
+            bestn = nc
+        end
+    end
+    return best
+end
+
+"""
+    wave_state(st, w::WaveParams, N; nmax=3, warm=true)
+
+Local wave quantities at a plasma `state`: the frame (`xhat`, `yhat`, `bhat`),
+`Nperp`, `Npar`, the polarization `e`, the anti-Hermitian tensor `εa` and the
+function `λ(N⊥, N∥) = e*·D·e` used for the group-velocity derivative. With `warm`
+the perpendicular index and the polarization come from the warm dispersion
+relation (Hermitian relativistic tensor) wherever the plasma is resonant.
+"""
+function wave_state(st, w::WaveParams, N::AbstractVector; nmax::Int=3, warm::Bool=true)
+    X, Y = plasma_XY(st, w)
     bhat = collect(st.B) ./ st.Bmag
     Npar = dot(N, bhat)
     Nperp_vec = N .- Npar .* bhat
@@ -115,16 +307,19 @@ function absorption_coefficient(st, w::WaveParams, N::AbstractVector, v::Abstrac
         xhat ./= norm(xhat)
     end
     yhat = cross(bhat, xhat)
-    μ = 510.99895 / st.Te                     # mc²/Te with Te in keV
-    εa = antihermitian_tensor(X, Y, Nperp, Npar, μ; nmax)
+    μ = 510.99895 / max(st.Te, 1e-3)
     e = cold_polarization(X, Y, Nperp, Npar)
-    num = real(dot(e, εa * e))                 # e*·ε^a·e  (dot conjugates its first argument)
-    Nloc = [Nperp, 0.0, Npar]
-    Ne = sum(Nloc .* e)                        # N·e, bilinear
-    dΛ = [2 * real(conj(e[k]) * Ne) - 2 * Nloc[k] for k in 1:3]
-    vhat = v ./ norm(v)
-    vloc = [dot(vhat, xhat), dot(vhat, yhat), dot(vhat, bhat)]
-    denom = dot(vloc, dΛ)
-    κ = -num / denom
-    return 2 * w.k0 * κ
+    εa = antihermitian_tensor(X, Y, Nperp, Npar, μ; nmax)
+    S, D, P = cold_tensor(X, Y)
+    εcold = [S -im*D 0; im*D S 0; 0 0 P]
+    λ(Np, Npl) = (Nv = [Np, 0.0, Npl]; real(dot(e, (Nv * Nv' - (Np^2 + Npl^2) * I + εcold) * e)))
+    resonant = real(dot(e, εa * e)) > 1e-8
+    if warm && resonant
+        Nperp_w, Dw = warm_dispersion(X, Y, Npar, μ, w.mode, Nperp; nmax)
+        e = null_vector(Dw)
+        εa = antihermitian_tensor(X, Y, Nperp_w, Npar, μ; nmax)
+        Nperp = Nperp_w
+        λ = (Np, Npl) -> (Nv = [Np, 0.0, Npl]; real(dot(e, (Nv * Nv' - (Np^2 + Npl^2) * I + hermitian_tensor(X, Y, Np, Npl, μ; nmax)) * e)))
+    end
+    return (; xhat, yhat, bhat, Nperp, Npar, e, εa, λ, X, Y, μ)
 end

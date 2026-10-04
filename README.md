@@ -55,7 +55,10 @@ Outputs are stored in the `waves` and the `core_sources` IDS.
 the published beam-tracing papers (no Fortran needed): cold-plasma paraxial
 beam tracing (`src/dispersion.jl`, `src/beam_tracing.jl`), absorption from the
 exactly relativistic anti-Hermitian dielectric tensor in the weak-damping
-approximation (`src/absorption.jl`), and deposition profiles from the beam's
+approximation, with the perpendicular index and polarization from the warm
+(relativistic Hermitian) dispersion relation where the plasma is resonant
+(`nabsroutine=1`; `nabsroutine=0` uses the cold polarization) (`src/absorption.jl`),
+and deposition profiles from the beam's
 Gaussian cross-section, with each part of the cross-section deposited where its
 own path meets the resonance (`src/deposition.jl`). Against the Fortran it
 reproduces the rays to a few mm and the deposition profiles (location, width,

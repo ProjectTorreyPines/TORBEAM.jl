@@ -345,21 +345,18 @@ function chi_derivatives(sf::SpitzerFunction, upar::Real, uperp::Real, b::Real)
 end
 
 """
-    cd_efficiency(sf::SpitzerFunction, b, st, w::WaveParams, N; nmax=3)
+    cd_efficiency(sf::SpitzerFunction, b, st, w::WaveParams, N; nmax=3, warm=true)
 
 Local driven current per absorbed power, `j∥/P_abs` [A/W per m² → A m / W],
 positive along B, at a point with `b = B/Bmin` on the surface of `sf`:
-`-(e/(m_e c ν₀)) ⟨d·∇_u χ̂⟩_W` with ν₀ from the local density and the Coulomb logarithm
+`-(e/(m_e c ν₀)) ⟨d·∇_u χ̂⟩_W` with ν₀ from the local density and the Coulomb
+logarithm; the weights use the (warm, if `warm`) polarization and N⊥
 """
-function cd_efficiency(sf::SpitzerFunction, b::Real, st, w::WaveParams, N::AbstractVector; nmax::Int=3)
+function cd_efficiency(sf::SpitzerFunction, b::Real, st, w::WaveParams, N::AbstractVector; nmax::Int=3, warm::Bool=true)
     X, Y = plasma_XY(st, w)
     (X <= 0 || st.Te <= 0) && return 0.0
-    bhat = collect(st.B) ./ st.Bmag
-    Npar = dot(N, bhat)
-    Nperp = norm(N .- Npar .* bhat)
-    μ = 510.99895 / st.Te
-    e = cold_polarization(X, Y, Nperp, Npar)
-    num, den = cd_resonance(X, Y, Nperp, Npar, μ, e, sf, b; nmax)
+    ws = wave_state(st, w, N; nmax, warm)
+    num, den = cd_resonance(X, Y, ws.Nperp, ws.Npar, ws.μ, ws.e, sf, b; nmax)
     den > 0 || return 0.0
     lnΛ = coulomb_log(st.ne, st.Te)
     ν0 = st.ne * e_charge^4 * lnΛ / (4π * ε_0^2 * m_e^2 * c_light^3)
@@ -438,18 +435,18 @@ end
 Local `j∥/P_abs` at a plasma state, interpolated linearly in rho between the
 two neighbouring tabulated surfaces
 """
-function cd_efficiency(table::CurrentDriveTable, st, w::WaveParams, N::AbstractVector; nmax::Int=3)
+function cd_efficiency(table::CurrentDriveTable, st, w::WaveParams, N::AbstractVector; nmax::Int=3, warm::Bool=true)
     ρ = sqrt(max(st.ψn, 0.0))
     ρ < 1 || return 0.0
     ρs = table.ρ
     if ρ <= ρs[1] || ρ >= ρs[end]
         k = ρ <= ρs[1] ? 1 : length(ρs)
         sf = table.sf[k]
-        return cd_efficiency(sf, max(st.Bmag / sf.fs.Bmin, 1.0), st, w, N; nmax)
+        return cd_efficiency(sf, max(st.Bmag / sf.fs.Bmin, 1.0), st, w, N; nmax, warm)
     end
     k = searchsortedlast(ρs, ρ)
     t = (ρ - ρs[k]) / (ρs[k+1] - ρs[k])
-    η1 = cd_efficiency(table.sf[k], max(st.Bmag / table.sf[k].fs.Bmin, 1.0), st, w, N; nmax)
-    η2 = cd_efficiency(table.sf[k+1], max(st.Bmag / table.sf[k+1].fs.Bmin, 1.0), st, w, N; nmax)
+    η1 = cd_efficiency(table.sf[k], max(st.Bmag / table.sf[k].fs.Bmin, 1.0), st, w, N; nmax, warm)
+    η2 = cd_efficiency(table.sf[k+1], max(st.Bmag / table.sf[k+1].fs.Bmin, 1.0), st, w, N; nmax, warm)
     return (1 - t) * η1 + t * η2
 end

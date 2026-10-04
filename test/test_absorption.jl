@@ -35,6 +35,62 @@ import LinearAlgebra: eigvals, Hermitian
         end
     end
 
+    @testset "warm dispersion" begin
+        # Hermitian tensor: cold limit, and against a brute-force complex-shift evaluation
+        for (X, Y, Nperp, Npar) in ((0.3, 0.52, 0.8, 0.0), (0.3, 0.49, 0.6, 0.3), (0.2, 0.3, 0.9, 0.1))
+            εh = TORBEAM.hermitian_tensor(X, Y, Nperp, Npar, 510.99895 / 0.01)
+            S, D, P = TORBEAM.cold_tensor(X, Y)
+            @test maximum(abs, εh - [S -im*D 0; im*D S 0; 0 0 P]) < 1e-3
+            @test εh ≈ εh' atol = 1e-12
+        end
+        function brute(X, Y, Nperp, Npar, μ, δ)
+            ε = Matrix{ComplexF64}(TORBEAM.I, 3, 3)
+            fnorm = μ / (4π * TORBEAM.besselkx(2, μ))
+            L = min(sqrt((1 + 32 / μ)^2 - 1), 3.0)
+            for n in -1:3
+                Iperp, _ = TORBEAM.quadgk(0.0, L; rtol=1e-6) do uperp
+                    b = Nperp * uperp / Y
+                    Jn = TORBEAM.besselj(n, b)
+                    Jnp = 0.5 * (TORBEAM.besselj(n - 1, b) - TORBEAM.besselj(n + 1, b))
+                    nJb = b > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)
+                    Iu, _ = TORBEAM.quadgk(-L, L; rtol=1e-7, maxevals=200000) do upar
+                        γ = sqrt(1 + uperp^2 + upar^2)
+                        w = [-nJb, -im * Jnp, Jn * upar / uperp]
+                        (uperp^2 * (-μ * fnorm * exp(-μ * (γ - 1))) / γ) .* (w * w') ./ (γ - n * Y - Npar * upar + im * δ)
+                    end
+                    2π * uperp .* Iu
+                end
+                ε .+= X .* Iperp
+            end
+            return ε
+        end
+        # the complex shift biases the integral linearly in δ: extrapolate 2ε(δ) - ε(2δ);
+        # the remaining Hermitian difference at 20 keV is the brute's u cutoff
+        for (X, Y, Nperp, Npar, Te, tolh) in ((0.35, 0.505, 0.64, 0.1, 2.0, 0.03), (0.3, 1.01, 0.83, 0.2, 20.0, 0.06))
+            μ = 510.99895 / Te
+            εh = TORBEAM.hermitian_tensor(X, Y, Nperp, Npar, μ)
+            εa = TORBEAM.antihermitian_tensor(X, Y, Nperp, Npar, μ)
+            εb = 2 * brute(X, Y, Nperp, Npar, μ, 1e-3) - brute(X, Y, Nperp, Npar, μ, 2e-3)
+            @test maximum(abs, (εb + εb') / 2 - εh) < tolh * maximum(abs, εh - TORBEAM.I)
+            @test maximum(abs, (εb - εb') / 2im - εa) < 0.02 * maximum(abs, εa)
+        end
+        # warm N⊥: close to the cold root far from the resonance, shifts by several % near it
+        μ = 510.99895 / 2.0
+        for (Y, shift) in ((0.3, false), (0.49, true), (0.52, true))
+            X, Npar, mode = 0.35, 0.1, -1
+            n2 = 1.0
+            Np = 0.6
+            for _ in 1:40
+                n2 = TORBEAM.refractive_index2(X, Y, Npar^2 / (Npar^2 + Np^2), mode)
+                Np = sqrt(max(n2 - Npar^2, 1e-6))
+            end
+            Npw, Dw = TORBEAM.warm_dispersion(X, Y, Npar, μ, mode, Np)
+            e = TORBEAM.null_vector(Dw)
+            @test norm(Dw * e) < 1e-6 * norm(Dw)
+            @test shift ? abs(Npw - Np) > 0.02 : abs(Npw - Np) < 5e-3
+        end
+    end
+
     for case in [splitext(f)[1] for f in readdir(joinpath(@__DIR__, "goldens")) if endswith(f, ".json")]
         dd = IMAS.json2imas(joinpath(@__DIR__, "data", "$case.json"))
         golden = JSON.parsefile(joinpath(@__DIR__, "goldens", "$case.json"))
