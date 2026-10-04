@@ -52,32 +52,34 @@ Outputs are stored in the `waves` and the `core_sources` IDS.
 `TORBEAM.fortran_available()` tells whether the library can be found.
 
 `TorbeamParams(backend=:julia)` runs a pure-Julia implementation written from
-the published beam-tracing papers (no Fortran needed): cold-plasma paraxial
-beam tracing (`src/dispersion.jl`, `src/beam_tracing.jl`), absorption from the
-exactly relativistic anti-Hermitian dielectric tensor in the weak-damping
-approximation, with the perpendicular index and polarization from the warm
-(relativistic Hermitian) dispersion relation where the plasma is resonant
-(`nabsroutine=1`; `nabsroutine=0` uses the cold polarization) (`src/absorption.jl`),
-and deposition profiles from the beam's
-Gaussian cross-section, with each part of the cross-section deposited where its
-own path meets the resonance (`src/deposition.jl`). Against the Fortran it
-reproduces the rays to a few mm and the deposition profiles (location, width,
-shape) on both DIII-D-like (2 keV) and ITER-like (25 keV) cases. Current
-drive (`src/current_drive.jl`) uses the adjoint method with a response function
-solved numerically from the bounce-averaged adjoint Fokker-Planck equation on
-each flux surface (relativistic test-particle collisions, Z_eff, trapping from
-the real field variation). With `ncdroutine=1` this is the Lorentz-model
-response (TORBEAM's Lin-Liu routine without momentum conservation, agreement
-within ~20% for beams that drive significant current); with `ncdroutine=2`
-(default) the response is that of the full linearized collision operator —
-exact thermal rates with energy diffusion and the electron-electron
-field-particle term (whose uniform-plasma limit, `src/spitzer.jl`,
-reproduces the Spitzer-Härm conductivity ratios) — solved in the real trapped
-geometry, where it reproduces the neoclassical conductivity (Sauter et al.
-1999) within a few percent; it reproduces TORBEAM's momentum-conserving
-current within ~16% on ITER-like and ~9% on DIII-D-like cases
-(second-harmonic O-mode: right sign, ~40% high along with its weakly absorbed
-power).
+the published papers (no Fortran needed; see [References](#references)):
+cold-plasma paraxial beam tracing (`src/dispersion.jl`, `src/beam_tracing.jl`),
+absorption from the exactly relativistic anti-Hermitian dielectric tensor in
+the weak-damping approximation, with the perpendicular index and polarization
+from the warm (relativistic Hermitian) dispersion relation where the plasma is
+resonant (`src/absorption.jl`), deposition profiles from the beam's Gaussian
+cross-section (`src/deposition.jl`) and current drive by the adjoint method
+(`src/current_drive.jl`, `src/spitzer.jl`). Against the Fortran it reproduces
+the rays to a few mm and the deposition profiles (location, width, shape) on
+both DIII-D-like (2 keV) and ITER-like (25 keV) cases.
+
+The switches keep their Fortran meaning, so the two backends can be compared
+setting by setting, and the Julia backend adds higher-fidelity options on top:
+
+| switch | value | model | agreement with the Fortran |
+|---|---|---|---|
+| `ncdroutine` | 1 | Lin-Liu et al. (2003): separable response χ = sgn(u∥) F(u) H(λ), slowing-down kept to its l = 1 moment (circulating fraction f_c), relativistic high-speed limit | ITER within 2 % (one beam 5 %), DIII-D X2 +9 %, near-perpendicular launches (near-cancelling currents) ×1.7–2.2 |
+| | 2 (default) | the same with momentum conservation: the variational Spitzer function of Romé et al. (1998) with the trapped-particle momentum sink, as the non-relativistic enhancement over the high-speed limit (`variational_spitzer`) | ITER within 2.5 % (one beam 5 %), DIII-D X2 +8 %; the enhancement itself matches to 1 % on both |
+| | 3 | exact 2-D (u, λ) solution of the bounce-averaged adjoint equation with the same relativistic high-velocity operator | validated against the Lorentz-gas conductivity 1 − f_t (exact) and the separable model in the uniform limit |
+| | 4 | full linearized collision operator (exact thermal rates, energy diffusion, e–e field term, relativistic detailed balance) in the real trapped geometry | reproduces the Spitzer–Härm conductivity ratios and the neoclassical conductivity of Sauter et al. (1999) within a few %; 5–20 % below the Fortran's momentum-conserving currents |
+| `nabsroutine` | 1 (default) | warm (relativistic Hermitian) N⊥ and polarization in the resonant layer | ITER deposition medians to ≤ 0.005, DIII-D X2 0.013 inside |
+| | 0 | cold N⊥ and polarization | fast path |
+
+Second-harmonic O-mode on DIII-D (weak absorption straddling the cold
+resonance) has the right current sign and ~40 % too much absorbed power and
+current. The driven current is reported as the toroidal current density
+j_tor = ⟨j∥⟩ F⟨1/R²⟩/(⟨B⟩⟨1/R⟩) and the total as ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor, which is
+how the Fortran's totals and profiles relate.
 
 The run is split into three steps that a backend plugs into:
 
@@ -98,6 +100,62 @@ To regenerate the goldens (needs FUSE, run on omega):
 
     module load torbeam/gcc11.x
     julia --project=<env with FUSE, JSON and this package dev'ed> test/goldens/generate.jl
+
+## References
+
+The Julia backend is a clean-room implementation: it was written from the
+published descriptions below and from first principles, and the Fortran source
+was not consulted (the library is used only as a black box for the golden
+comparisons). Where the backend offers the same reduced model as the Fortran
+it follows the paper the Fortran cites; the higher-fidelity options are
+validated against the classical results listed last.
+
+Beam tracing and the TORBEAM models
+
+- G. V. Pereverzev, *Beam tracing in inhomogeneous anisotropic plasmas*,
+  Phys. Plasmas 5 (1998) 3529 — paraxial WKB (complex-eikonal) beam tracing.
+- E. Poli, A. G. Peeters, G. V. Pereverzev, *TORBEAM, a beam tracing code for
+  electron-cyclotron waves in tokamak plasmas*, Comput. Phys. Commun. 136
+  (2001) 90 — the 19 beam-tracing ODEs and the absorption equation.
+- E. Poli et al., *TORBEAM 2.0, a paraxial beam tracing code for
+  electron-cyclotron beams in fusion plasmas for extended physics
+  applications*, Comput. Phys. Commun. 225 (2018) 36 — which absorption,
+  current-drive and deposition models the switches select (Sections 4 and 5,
+  Eq. 14 for the `nprofcalc=1` profile).
+
+Dielectric tensor and absorption
+
+- T. H. Stix, *Waves in Plasmas* (AIP, 1992) — cold tensor, harmonic (Bessel)
+  matrix, resonance geometry; the relativistic Maxwellian tensors are derived
+  from the gyro-orbit integrals in `src/absorption.jl`.
+
+Current drive
+
+- T. M. Antonsen and K. R. Chu, Phys. Fluids 25 (1982) 1295 — the adjoint
+  (Green's-function) formulation of rf current drive.
+- Y. R. Lin-Liu, V. S. Chan, R. Prater, *Electron cyclotron current drive
+  efficiency in general tokamak geometry*, Phys. Plasmas 10 (2003) 4064
+  (GA report A24257) — the separable response χ = sgn(u∥) F(u) H(λ) with the
+  circulating fraction f_c (`ncdroutine=1`), the efficiency Eqs. 38–40 and
+  the ⟨j∥B⟩/⟨B²⟩ current definition.
+- M. Romé, V. Erckmann, U. Gasparino, N. Karulin, Plasma Phys. Control.
+  Fusion 40 (1998) 511, Appendix — the variational (fifth-degree polynomial)
+  Spitzer function with momentum conservation and the trapped-particle
+  momentum sink (f_tr/f_c) ν_e.
+- N. B. Marushchenko, C. D. Beidler, H. Maassberg, *Current drive
+  calculations with an advanced adjoint approach*, Fusion Sci. Technol. 55
+  (2009) 180 — the weakly relativistic (μ⁻¹) extension of that variational
+  Spitzer function, with the explicit matrix coefficients (`ncdroutine=2`).
+- N. B. Marushchenko et al., *Electron cyclotron current drive in low
+  collisionality limit: on parallel momentum conservation*, Phys. Plasmas 18
+  (2011) 032501 — the relation between the high-speed-limit, the
+  momentum-conserving and the exact bounce-averaged solutions, and the
+  toroidal-current conventions (Appendix).
+- L. Spitzer and R. Härm, Phys. Rev. 89 (1953) 977 — conductivity ratios
+  γ_E(Z) used to validate the uniform-field solver.
+- O. Sauter, C. Angioni, Y. R. Lin-Liu, Phys. Plasmas 6 (1999) 2834 — the
+  collisionless neoclassical conductivity used to validate the full-operator
+  solver in the real trapped geometry.
 
 ## Usage instructions for Omega
 

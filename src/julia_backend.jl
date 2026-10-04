@@ -23,7 +23,7 @@ function backend_cache(inputs::BeamInputs, torbeam_params::TorbeamParams)
     m = PlasmaModel(inputs)
     ρV, V = flux_volumes(m)
     nmax = torbeam_params.npow == 0 ? 0 : torbeam_params.nmaxh
-    table = torbeam_params.ncd == 1 && nmax > 0 ? CurrentDriveTable(m, m.Zeff; full_operator=torbeam_params.ncdroutine == 2) : nothing
+    table = torbeam_params.ncd == 1 && nmax > 0 ? CurrentDriveTable(m, m.Zeff; model=cd_model(torbeam_params.ncdroutine)) : nothing
     return BackendCache(m, (collect(ρV), V), table)
 end
 
@@ -73,6 +73,7 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Un
 
     if cache.table !== nothing
         table = cache.table
+        # evaluated once per step on the reference ray (as the Fortran) by `deposition`
         efficiency = (u, s) -> cd_efficiency(table, state(m, u[1], u[2], u[3]), l.wave, u[4:6]; nmax, warm)
     else
         efficiency = nothing
@@ -85,8 +86,15 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Un
     # our j∥ is along B, so multiply by sign(B0) sign(Ip), with sign(Ip) = sgnm
     # (COCOS 11: psi increases outwards for Ip > 0)
     sgn_j = sign(m.B0) * inputs.floatinbeam[34]
-    t2ndata[2NPNT+1:3NPNT] = sgn_j .* dep.j ./ 1e6            # MA/m²
-    Icd = sgn_j * sum(dep.Jbin) / (2π * m.R_axis) / 1e3      # kA: ∫ j dA ≈ ∫ j dV / (2π R)
+    # the profile is the toroidal current density j_tor = ⟨j∥⟩ G/⟨1/R⟩ [MA/m²] and the total the
+    # toroidal current ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor = ∫ ⟨j∥⟩ G dV / 2π [kA], see `toroidal_factor`
+    if cache.table === nothing
+        t2ndata[2NPNT+1:3NPNT] .= 0.0
+        Icd = 0.0
+    else
+        t2ndata[2NPNT+1:3NPNT] = [sgn_j * dep.j[k] * jtor_factor(cache.table, dep.ρ[k]) / 1e6 for k in 1:NPNT]
+        Icd = sgn_j * sum(dep.Jbin[k] * toroidal_factor(cache.table, dep.ρ[k]) for k in 1:NPNT) / (2π) / 1e3
+    end
 
     Pabs = (l.power - power(b, b.length)) / 1e6      # MW
     rhoresult = fill(-1.0, MAXRHR)

@@ -55,7 +55,7 @@
                 # (Julia ncdroutine=2: rescaled by the full-operator Spitzer function) vs Fortran ncdroutine=2.
                 # Second-harmonic O-mode: the sign is tested, the magnitude is not — its weak absorption
                 # (Julia 1.40 vs Fortran 1.25 MW) straddles the cold resonance and the current follows it.
-                for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.2))
+                for (ncdr, Iref, tol) in ((1, I1, 0.12), (2, I2, 0.1))
                     p = TORBEAM.TorbeamParams(; (Symbol(k) => v isa String ? Symbol(v) : v for (k, v) in golden["params"])..., backend=:julia, ncdroutine=ncdr)
                     inputs = TORBEAM.beam_inputs(dd, ibeam, p, eq)
                     out = TORBEAM.run_beam(inputs, p)
@@ -91,23 +91,90 @@ end
     end
 end
 
+@testset "variational Spitzer function" begin
+    # f_c = 1, μ → ∞: the Spitzer-Härm function in the normalisation of the 1-D solver (no free
+    # constant); the 4-term polynomial is a few % off pointwise (the paper quotes 0.5 ≲ x ≲ 4) and
+    # the conductivity moment, being the variational quantity, is accurate to < 1 %
+    for Z in (1.0, 2.0, 4.0)
+        sp = TORBEAM.SpitzerFunction1D(Z)
+        d, χ = TORBEAM.variational_spitzer(1.0, Z, 1e8)
+        for x in (0.7, 1.0, 1.5, 2.0, 3.0)
+            @test χ(x) ≈ sp.D[argmin(abs.(sp.x .- x))] rtol = 0.08
+        end
+        w = sp.x .^ 4 .* exp.(-sp.x .^ 2)
+        @test sum(w .* χ.(sp.x)) ≈ sum(w .* sp.D) rtol = 0.01
+    end
+    # trapping reduces the response, relativity reduces it at high momentum
+    _, χ1 = TORBEAM.variational_spitzer(1.0, 2.0, 1e8)
+    _, χ5 = TORBEAM.variational_spitzer(0.5, 2.0, 1e8)
+    _, χr = TORBEAM.variational_spitzer(0.5, 2.0, 20.44)
+    @test all(χ5(u) < χ1(u) for u in (1.0, 2.0, 3.0))
+    @test all(0.5 < χr(u) / χ5(u) < 0.9 for u in (2.0, 3.0, 4.0))
+    @test issorted([χr(u) / χ5(u) for u in (1.0, 2.0, 3.0, 4.0)]; rev=true)
+end
+
+@testset "Lin-Liu separable response" begin
+    n = 64
+    fsu = TORBEAM.FluxSurface(0.5, fill(6.0, n), zeros(n), fill(5.0, n), fill(0.1, n), 5.0, 5.0, 1.0)
+    @test TORBEAM.circulating_fraction(fsu) ≈ 1.0 atol = 1e-4
+    # uniform field: the l = 1 truncation is exact, so the separable response coincides with the
+    # exact 2-D solution of the same operator, relativistic factors included
+    # (the march's first-order λ discretisation is ~1% low at λ = 0 with nλ = 400 and converges)
+    sfl = TORBEAM.linliu_response(fsu, 2.0, 100.0)
+    sfL = TORBEAM.SpitzerFunction(fsu, 2.0; nu=1500, nλ=400)
+    for u in (0.1, 0.3, 0.6, 1.0), λ in (0.0, 0.5, 0.9)
+        @test TORBEAM.chi(sfl, u, λ) ≈ TORBEAM.chi(sfL, u, λ) rtol = 0.02
+    end
+    @test TORBEAM.chi(sfl, 0.1, 0.3) ≈ 0.1^4 * sqrt(0.7) / 7 rtol = 0.01     # non-relativistic u⁴ξ/(5+Z)
+    @test sfl.scale ≈ 1.0
+    # momentum conservation, uniform field, 5 keV: the enhancement over the high-speed limit is the
+    # Spitzer-Härm one (variational polynomial, few %), and the hand-over to the exact 1-D solution
+    # at x = 3 is smooth
+    μ = 100.0
+    uT = sqrt(2 / μ)
+    sfm = TORBEAM.linliu_response(fsu, 2.0, μ; momentum_conservation=true)
+    sfh = TORBEAM.linliu_response(fsu, 2.0, μ)
+    sp = TORBEAM.SpitzerFunction1D(2.0)
+    for x in (1.0, 2.0, 3.0)
+        @test TORBEAM.chi(sfm, x * uT, 0.0) / TORBEAM.chi(sfh, x * uT, 0.0) ≈ sp.D[argmin(abs.(sp.x .- x))] * 7 / x^4 rtol = 0.08
+    end
+    for x in (2.7, 2.9, 3.1, 3.3)
+        @test TORBEAM.chi(sfm, x * uT, 0.0) / TORBEAM.chi(sfh, x * uT, 0.0) ≈ sp.D[argmin(abs.(sp.x .- x))] * 7 / x^4 rtol = 0.05
+    end
+    # real surface: f_c is the complement of the effective trapped fraction; H decreasing to 0
+    dd = IMAS.json2imas(joinpath(@__DIR__, "data", "ITER.json"))
+    m = TORBEAM.PlasmaModel(TORBEAM.beam_inputs(dd, 1, TORBEAM.TorbeamParams(), TORBEAM.equilibrium_inputs(dd)))
+    p1 = dd.equilibrium.time_slice[1].profiles_1d
+    psin = (p1.psi .- p1.psi[1]) ./ (p1.psi[end] - p1.psi[1])
+    for ρ in (0.45, 0.775)
+        fs = TORBEAM.FluxSurface(m, ρ)
+        @test TORBEAM.circulating_fraction(fs) ≈ 1 - IMAS.interp1d(psin, p1.trapped_fraction)(ρ^2) rtol = 0.01
+        sf = TORBEAM.linliu_response(fs, m.Zeff, 30.0)
+        χs = [TORBEAM.chi(sf, 0.5, f * fs.λc) for f in (0.0, 0.3, 0.6, 0.9, 1.0)]
+        @test issorted(χs; rev=true)
+        @test abs(χs[end]) < 1e-6 * χs[1]
+        @test 0.7 < sf.scale < 1.0
+    end
+end
+
 @testset "full-operator response" begin
     # uniform field: the 2-D solver reproduces the 1-D Spitzer function (which has
     # energy diffusion and the field term) at thermal energies, where the
     # relativistic γ factors are ~1
     n = 64
-    for (Z, Te) in ((2.0, 20.0), (1.0, 5.0))
+    for (Z, Te) in ((2.0, 5.0), (1.0, 2.0))
         μ = 510.99895 / Te
         uT = sqrt(2 / μ)
         fs = TORBEAM.FluxSurface(0.5, fill(6.0, n), zeros(n), fill(5.0, n), fill(0.1, n), 5.0, 5.0, 1.0)
         sp = TORBEAM.SpitzerFunction1D(Z)
-        sf = TORBEAM.full_operator_response(fs, Z, μ)
+        umax = min(1.5, 10uT)                # resolve the thermal bulk at 2 keV
+        sf = TORBEAM.full_operator_response(fs, Z, μ; umax)
         for u in (0.3uT, 0.7uT, 1.0uT)
             D1 = sp.D[argmin(abs.(sp.x .- u / uT))]
             @test TORBEAM.chi(sf, u, 0.64) / 0.6 ≈ uT^4 * D1 rtol = 0.06
         end
         # the field term enhances the response
-        sft = TORBEAM.full_operator_response(fs, Z, μ; field=false)
+        sft = TORBEAM.full_operator_response(fs, Z, μ; umax, field=false)
         @test TORBEAM.chi(sf, 0.7uT, 0.64) > 1.2 * TORBEAM.chi(sft, 0.7uT, 0.64)
     end
     # suprathermal electrons: the test-particle-only response must stay above the Lorentz one

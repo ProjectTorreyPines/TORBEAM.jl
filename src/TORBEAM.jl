@@ -6,7 +6,7 @@ Base.@kwdef struct TorbeamParams
     # switches
     npow::Int = 1             # Power absorption switch (1 = on, 0 = off)
     ncd::Int = 1              # Current drive calculation switch (1 = on, 0 = off)
-    ncdroutine::Int = 2       # Current drive routine selection (0 = Curba, 1 = Lin-Liu, 2 = Lin-Liu + momentum conservation)
+    ncdroutine::Int = 2       # Current drive routine (0 = Curba, 1 = Lin-Liu, 2 = Lin-Liu + momentum conservation; Julia backend only: 3 = exact 2-D Lorentz-model solution, 4 = full linearized collision operator)
     nprofv::Int = 50          # Number of radial points for volume profile calculation
     noout::Int = 0            # Screen output switch (0 = output enabled, 1 = output disabled)
     nrela::Int = 1            # Relativity consideration in absorption (0 = weakly, 1 = fully relativistic)
@@ -214,7 +214,7 @@ function beam_inputs(dd::IMAS.dd, ibeam::Int, torbeam_params::TorbeamParams, eq)
     intinbeam[4] = torbeam_params.npow
     intinbeam[5] = torbeam_params.ncd
     intinbeam[6] = 2  # tbr
-    intinbeam[7] = torbeam_params.ncdroutine
+    intinbeam[7] = torbeam_params.ncdroutine > 2 ? torbeam_params.ncdroutine - 2 : torbeam_params.ncdroutine   # Julia-only 3/4 → nearest Fortran model
     intinbeam[8] = torbeam_params.nprofv
     intinbeam[9] = torbeam_params.noout
     intinbeam[10] = torbeam_params.nrela

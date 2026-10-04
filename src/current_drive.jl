@@ -9,7 +9,7 @@
 # χ solves the bounce-averaged adjoint equation with the high-velocity
 # relativistic test-particle collision operator (slowing down on electrons,
 # pitch-angle scattering on electrons and ions with Z_eff):
-#     -ν_s u ∂χ/∂u + (ν_d/2) ⟨L_ξ⟩_b χ = -u ⟨ξ⟩_b ,
+#     -ν_s u ∂χ/∂u + (ν_d/2) ⟨L_ξ⟩_b χ = -(u/γ) ⟨ξ⟩_b    (source: the parallel velocity),
 #     ν_s = ν₀ γ²/u³,  ν_d = ν₀ (1 + Z_eff) γ/u³,  ν₀ = n_e e⁴ lnΛ / (4π ε₀² m_e² c³).
 # ν_s is the drag on the speed (the friction on the velocity vector is twice
 # that, but the perpendicular diffusion returns half of the energy) and
@@ -20,6 +20,13 @@
 # J = ∮ dl/|ξ| along the field line, χ vanishes for trapped electrons
 # (λ > λ_c = B_min/B_max), and the equation is marched in u from χ(0) = 0 with
 # an implicit tridiagonal solve in λ. χ̂ = ν₀ χ is stored (dimensionless).
+#
+# Besides this exact 2-D solution (`SpitzerFunction(fs, Zeff)`, `ncdroutine=3`)
+# and the full linearized operator (`full_operator_response`, `ncdroutine=4`),
+# the separable model of Lin-Liu, Chan & Prater, Phys. Plasmas 10 (2003) 4064,
+# that the Fortran uses (`linliu_response`, `ncdroutine=1`) is available: the
+# slowing-down term is kept to its l = 1 Legendre moment, which makes
+# χ̂ = sgn(u∥) F(u) H(λ) separable with the circulating fraction f_c in F.
 
 import SparseArrays
 
@@ -119,7 +126,9 @@ struct SpitzerFunction{S}
     fs::FluxSurface
     χ::S
     umax::Float64
+    scale::Float64   # multiplies the efficiency: ⟨B/B_max⟩ for the Lin-Liu model (its ⟨j∥⟩ definition), 1 otherwise
 end
+SpitzerFunction(fs::FluxSurface, χ, umax::Real) = SpitzerFunction(fs, χ, Float64(umax), 1.0)
 
 """
     SpitzerFunction(fs::FluxSurface, Zeff; nu=300, nλ=200, umax=1.5)
@@ -157,7 +166,8 @@ function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200,
         γ = sqrt(1 + u^2)
         νs = γ^2 / u^3
         νd = (1 + Zeff) * γ / u^3
-        # implicit step: (χ_new - χ_old)/du = [ (νd/2) A χ_new + u ξbar ] / (νs u)
+        # implicit step: (χ_new - χ_old)/du = [ (νd/2) A χ_new + (u/γ) ξbar ] / (νs u); the adjoint
+        # source is the parallel velocity u∥/γ (the current is -e∫v∥f₁), not the momentum
         c = du / (νs * u)
         lower = zeros(n - 1)
         diag = zeros(n)
@@ -168,13 +178,99 @@ function SpitzerFunction(fs::FluxSurface, Zeff::Real; nu::Int=300, nλ::Int=200,
             diag[k] = 1 + c * a * (am[k] + ap[k])
             k > 1 && (lower[k-1] = -c * a * am[k])
             k < n && (upper[k] = -c * a * ap[k])        # χ at node nλ is 0
-            rhs[k] = χ[iu-1, k] + c * u * ξbar[k]
+            rhs[k] = χ[iu-1, k] + c * u / γ * ξbar[k]
         end
         χ[iu, 1:n] = tridiagonal_solve(lower, diag, upper, rhs)
     end
     # spline on the (u, t) grid; evaluation maps λ -> t
     spl = Interpolations.cubic_spline_interpolation((us, ts), χ; extrapolation_bc=Interpolations.Line())
     return SpitzerFunction(fs, spl, umax)
+end
+
+"""
+    flux_average(fs::FluxSurface, A)
+
+Flux-surface average `∮ A dl_p/B_p / ∮ dl_p/B_p` of the samples `A` on the surface points
+"""
+flux_average(fs::FluxSurface, A::AbstractVector) = sum(A .* fs.dl ./ fs.B) / sum(fs.dl ./ fs.B)
+
+"""
+    circulating_fraction(fs::FluxSurface)
+
+Effective circulating fraction `f_c = ¾ ⟨B²/B²max⟩ ∫₀¹ λ dλ / ⟨(1 - λ B/Bmax)^{1/2}⟩`
+(Lin-Liu et al. 2003 Eq. 32; `1 - f_c` is the effective trapped fraction)
+"""
+function circulating_fraction(fs::FluxSurface)
+    b = fs.B ./ fs.Bmax
+    # λ = 1 - s²: removes the integrable 1/√(1-λ) singularity of the uniform-B limit
+    ns = 2000
+    g = [(sλ = (k - 0.5) / ns; λ = 1 - sλ^2; 2sλ * λ / flux_average(fs, sqrt.(max.(1 .- λ .* b, 0.0)))) for k in 1:ns]
+    return 0.75 * flux_average(fs, b .^ 2) * sum(g) / ns
+end
+
+"""
+    linliu_response(fs::FluxSurface, Zeff, μ; nu=300, nλ=200, umax=1.5)
+
+The separable response of Lin-Liu, Chan & Prater (2003), Eqs. 27-33, as a `SpitzerFunction`
+in the normalisation of this file (`χ̂ = u_e⁴ χ̃` so that the uniform non-relativistic limit is
+`u⁴ξ/(5+Z)`): `χ̂ = sgn(u∥) F̂(u) H(λ)` with
+`H(λ) = ½ ∫_λ^1 dλ'/⟨(1 - λ' B/Bmax)^{1/2}⟩` for `λ = (Bmax/B) u⊥²/u² ≤ 1` (0 for trapped) and
+`F̂(u) = (u⁴/f_c) ∫₀¹ x^{ρ̂+3} (1 + u²x²)^{-3/2} [(1 + γ)/(1 + γ(ux))]^{ρ̂} dx`, `ρ̂ = (Z+1)/f_c`.
+The slowing-down term is kept to its l = 1 Legendre moment (exact in the Lorentz-gas limit);
+`scale = ⟨B/Bmax⟩` carries the prefactor of Lin-Liu's efficiency (Eq. 38), whose current is the
+flux-surface average `⟨j∥⟩`.
+"""
+function linliu_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=300, nλ::Int=200, umax::Float64=1.5, momentum_conservation::Bool=false)
+    fc = circulating_fraction(fs)
+    ρ̂ = (Zeff + 1) / fc
+    bmax = fs.B ./ fs.Bmax
+    # H on the file's t grid: λ_code = λc (1 - (1-t)²) ⇔ λ_LL = λ_code/λc = 1 - (1-t)², and with
+    # λ' = 1 - s'² the integral is H = ∫₀^{1-t} s' ds' / ⟨(1 - (1-s'²) B/Bmax)^{1/2}⟩ (no singularity)
+    ts = range(0.0, 1.0; length=nλ)
+    nfine = 4000
+    sfine = range(0.0, 1.0; length=nfine + 1)
+    gs = [(sλ = (k - 0.5) / nfine; sλ / flux_average(fs, sqrt.(max.(1 .- (1 - sλ^2) .* bmax, 0.0)))) for k in 1:nfine]
+    cum = vcat(0.0, cumsum(gs) ./ nfine)            # ∫₀^{s} g ds' at the nodes sfine
+    H = [IMAS.interp1d(collect(sfine), cum).(1 - t) for t in ts]
+    us = range(0.0, umax; length=nu)
+    # F̂ of the high-speed limit on the u grid (Eq. 33), Gauss-Legendre in x
+    xg, wg = gauss_legendre(64)
+    function Fhsl(u)
+        u > 0 || return 0.0
+        γ = sqrt(1 + u^2)
+        acc = 0.0
+        for (x, w) in zip(xg, wg)
+            xx = 0.5 * (x + 1)
+            γx = sqrt(1 + (u * xx)^2)
+            acc += 0.5 * w * xx^(ρ̂ + 3) * (1 + (u * xx)^2)^(-1.5) * ((1 + γ) / (1 + γx))^ρ̂
+        end
+        return u^4 / fc * acc
+    end
+    F = Fhsl.(us)
+    if momentum_conservation
+        # Momentum conservation as the ratio R(x) = K_mc(x)/K_hsl(x) of the non-relativistic
+        # l = 1 solutions with the trapped-particle sink (Romé et al. 1998, Appendix: the variational
+        # polynomial `variational_spitzer` for x = u/u_e ≤ 3, where it is within 3 % of the exact 1-D
+        # solution `SpitzerFunction1D(Z; sink)`, which takes over beyond and gives R → 1), applied to the fully
+        # relativistic high-speed-limit F̂ of Eq. 33 — the "relativistic adaptation" of that
+        # Appendix. (Marushchenko's weakly relativistic μ⁻¹ expansion of the polynomial, also in
+        # `variational_spitzer`, is not used here: against the fully relativistic high-speed limit
+        # its ratio grows with x instead of tending to 1, and the Fortran's enhancement does not.)
+        uT = sqrt(2 / μ)
+        _, χa = variational_spitzer(fc, Zeff, Inf)
+        sp = SpitzerFunction1D(Zeff; sink=(1 - fc) / fc)
+        xmax = 3.0
+        for (i, u) in enumerate(us)
+            x = u / uT
+            Kmc = x <= xmax ? χa(x) : spitzer_ratio_sink(sp, x)          # non-relativistic K_mc(x)
+            # F̂_hsl / K_hsl,nr = (u_e⁴/f_c) × relativistic factor of Eq. 33 (→ 1 as u → 0)
+            rel = u > 0 ? F[i] / (u^4 / (fc * (4 + ρ̂))) : 1.0
+            F[i] = uT^4 / fc * rel * Kmc
+        end
+    end
+    χ = F * H'
+    spl = Interpolations.cubic_spline_interpolation((us, ts), χ; extrapolation_bc=Interpolations.Line())
+    return SpitzerFunction(fs, spl, umax, flux_average(fs, bmax))
 end
 
 """
@@ -262,7 +358,7 @@ function full_operator_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=2
     A = SparseArrays.sparse(rows, cols, vals, N, N)
     Alu = SparseArrays.lu(A)
     source(f::AbstractVector) = vec([-ξbar[k] * f[i] for i in 1:nu, k in 1:nk])
-    χv = Alu \ source(us)
+    χv = Alu \ source(us ./ sqrt.(1 .+ us .^ 2))     # adjoint source: parallel velocity u∥/γ
     if field
         # l = 1 moment at the outboard point: g₁(u) = (3/2)∫₀^λc χ dλ
         wλ = zeros(nk)
@@ -370,7 +466,7 @@ function cd_efficiency(sf::SpitzerFunction, b::Real, st, w::WaveParams, N::Abstr
     den > 0 || return 0.0
     lnΛ = coulomb_log(st.ne, st.Te)
     ν0 = st.ne * e_charge^4 * lnΛ / (4π * ε_0^2 * m_e^2 * c_light^3)
-    return -e_charge / (m_e * c_light * ν0) * num / den
+    return -sf.scale * e_charge / (m_e * c_light * ν0) * num / den
 end
 
 """
@@ -424,20 +520,67 @@ end
 struct CurrentDriveTable
     ρ::Vector{Float64}
     sf::Vector{SpitzerFunction}
+    G::Vector{Float64}      # F⟨1/R²⟩/⟨B⟩ [1/m] per surface, see `toroidal_factor`
+    Rinv::Vector{Float64}   # ⟨1/R⟩ [1/m] per surface
 end
 
 """
-    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=40, full_operator=true)
+    CurrentDriveTable(m::PlasmaModel, Zeff; nρ=40, model=:full)
 
-Responses on `nρ` surfaces: with `full_operator` those of the full linearized
-collision operator (using the surface temperature), else the Lorentz model
+Responses on `nρ` surfaces. `model` is `:linliu` (the separable model of the Fortran,
+`ncdroutine=1`), `:linliu_mc` (the same with the variational momentum-conserving Spitzer
+function, `ncdroutine=2`), `:lorentz2d` (exact 2-D solution of the high-velocity operator,
+`ncdroutine=3`) or `:full` (full linearized collision operator at the surface temperature,
+`ncdroutine=4`)
 """
-function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=40, full_operator::Bool=true)
+function CurrentDriveTable(m::PlasmaModel, Zeff::Real; nρ::Int=40, model::Symbol=:full)
+    model in (:linliu, :linliu_mc, :lorentz2d, :full) || throw(ArgumentError("unknown current-drive model $model"))
     ρs = collect(range(0.04, 0.98; length=nρ))
-    sfs = [full_operator ? full_operator_response(FluxSurface(m, ρ), Zeff, 510.99895 / max(temperature(m, ρ), 1e-3)) :
-           SpitzerFunction(FluxSurface(m, ρ), Zeff; nλ=300) for ρ in ρs]
-    return CurrentDriveTable(ρs, sfs)
+    sfs = map(ρs) do ρ
+        fs = FluxSurface(m, ρ)
+        μ = 510.99895 / max(temperature(m, ρ), 1e-3)
+        model == :linliu ? linliu_response(fs, Zeff, μ) :
+        model == :linliu_mc ? linliu_response(fs, Zeff, μ; momentum_conservation=true) :
+        model == :lorentz2d ? SpitzerFunction(fs, Zeff; nλ=300) :
+        full_operator_response(fs, Zeff, μ)
+    end
+    F = m.R_axis * abs(B_cyl(m, m.R_axis, m.Z_axis)[2])      # R B_φ (flux function)
+    G = [F * flux_average(sf.fs, 1 ./ sf.fs.R .^ 2) / flux_average(sf.fs, sf.fs.B) for sf in sfs]
+    Rinv = [flux_average(sf.fs, 1 ./ sf.fs.R) for sf in sfs]
+    return CurrentDriveTable(ρs, sfs, G, Rinv)
 end
+
+"""
+    toroidal_factor(table::CurrentDriveTable, ρ)
+
+`G = F ⟨1/R²⟩ / ⟨B⟩` [1/m] on the surface (`F = R B_φ`): the toroidal current is
+`I = ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor` with `dΨ_tor = ⟨B·∇φ⟩ dV / 2π = F ⟨1/R²⟩ dV / 2π`, so
+`dI/dV = ⟨j∥⟩ G / 2π`, and the toroidal current density is `j_tor = ⟨j∥⟩ G / ⟨1/R⟩`
+(Marushchenko et al. 2011, Appendix, Eqs. A1 and A9); `G ≈ 1/R₀` near the axis
+"""
+toroidal_factor(table::CurrentDriveTable, ρ::Real) = table_interp(table, table.G, ρ)
+
+"""
+    jtor_factor(table::CurrentDriveTable, ρ)
+
+`G / ⟨1/R⟩`: converts the flux-surface-averaged `⟨j∥⟩` to the toroidal current density
+"""
+jtor_factor(table::CurrentDriveTable, ρ::Real) = table_interp(table, table.G ./ table.Rinv, ρ)
+
+function table_interp(table::CurrentDriveTable, v::AbstractVector, ρ::Real)
+    ρs = table.ρ
+    k = clamp(searchsortedlast(ρs, ρ), 1, length(ρs) - 1)
+    t = clamp((ρ - ρs[k]) / (ρs[k+1] - ρs[k]), 0.0, 1.0)
+    return (1 - t) * v[k] + t * v[k+1]
+end
+
+"""
+    cd_model(ncdroutine)
+
+Current-drive response model for a `ncdroutine` value: 0/1 → `:linliu`, 2 → `:linliu_mc`
+(the Fortran's models), 3 → `:lorentz2d`, 4 → `:full` (the exact solvers)
+"""
+cd_model(ncdroutine::Int) = ncdroutine <= 1 ? :linliu : ncdroutine == 2 ? :linliu_mc : ncdroutine == 3 ? :lorentz2d : :full
 
 """
     cd_efficiency(table::CurrentDriveTable, st, w, N; nmax=3)
