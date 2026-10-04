@@ -35,6 +35,20 @@ import LinearAlgebra: eigvals, Hermitian
         end
     end
 
+    @testset "harmonic vector" begin
+        # the harmonic matrix is the outer product of the gyro-phase Fourier coefficient of the
+        # velocity, w = ∫ (cos φ, sin φ, u∥/u⊥) e^{i(nφ - b sin φ)} dφ / 2π, evaluated here by
+        # quadrature: this pins the relative signs of all three components (the cold limit only
+        # sees the x–y block; the x–z and y–z entries are odd in u∥ and set the ECCD direction)
+        φ = range(0, 2π; length=513)[1:end-1]
+        for (n, b, upar, uperp) in ((1, 0.3, 0.4, 0.5), (2, 1.2, -0.3, 0.7), (3, 0.05, 0.6, 0.2), (-1, 0.8, 0.2, 0.4))
+            wnum = [sum(f.(φ) .* exp.(im .* (n .* φ .- b .* sin.(φ)))) / length(φ) for f in (cos, sin, _ -> upar / uperp)]
+            @test maximum(abs, wnum * wnum' - TORBEAM.bessel_matrix(n, b, upar, uperp)) < 1e-10
+            @test maximum(abs, wnum - TORBEAM.harmonic_vector(n, b, upar, uperp)) < 1e-10
+        end
+        @test TORBEAM.harmonic_vector(1, 0.0, 0.3, 0.5) ≈ [0.5, 0.5im, 0.0]
+    end
+
     @testset "warm dispersion" begin
         # Hermitian tensor: cold limit, and against a brute-force complex-shift evaluation
         for (X, Y, Nperp, Npar) in ((0.3, 0.52, 0.8, 0.0), (0.3, 0.49, 0.6, 0.3), (0.2, 0.3, 0.9, 0.1))
@@ -55,7 +69,7 @@ import LinearAlgebra: eigvals, Hermitian
                     nJb = b > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)
                     Iu, _ = TORBEAM.quadgk(-L, L; rtol=1e-7, maxevals=200000) do upar
                         γ = sqrt(1 + uperp^2 + upar^2)
-                        w = [-nJb, -im * Jnp, Jn * upar / uperp]
+                        w = [nJb, im * Jnp, Jn * upar / uperp]
                         (uperp^2 * (-μ * fnorm * exp(-μ * (γ - 1))) / γ) .* (w * w') ./ (γ - n * Y - Npar * upar + im * δ)
                     end
                     2π * uperp .* Iu

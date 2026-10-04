@@ -74,7 +74,8 @@ exact thermal rates with energy diffusion and the electron-electron
 field-particle term (whose uniform-plasma limit, `src/spitzer.jl`,
 reproduces the Spitzer-Härm conductivity ratios) — solved in the real trapped
 geometry; it reproduces TORBEAM's momentum-conserving current within ~25% on
-ITER-like and ~7% on DIII-D-like cases.
+ITER-like and ~7% on DIII-D-like cases (second-harmonic O-mode: right sign,
+~30% high along with its weakly absorbed power).
 
 The run is split into three steps that a backend plugs into:
 

@@ -47,18 +47,30 @@ function cold_polarization(X::Real, Y::Real, Nperp::Real, Npar::Real)
 end
 
 """
-    bessel_matrix(n, b, upar, uperp)
+    harmonic_vector(n, b, upar, uperp)
 
-Stix's harmonic matrix `T^n = w w†`, `w = (-(n/b)J_n, -iJ_n', J_n u∥/u⊥)` (electrons), for Bessel argument `b = N⊥ u⊥ / Y`
+Gyro-phase Fourier coefficient of the velocity, `w = ((n/b)J_n, iJ_n', J_n u∥/u⊥)`, for
+Bessel argument `b = N⊥ u⊥ / Y`, in the local frame x̂ ∥ N⊥, ŷ = b̂ × x̂ with phase
+e^{i(k·r - ωt)} and electrons gyrating counter-clockwise about b̂: along the orbit the
+wave phase picks up `b (sin φ' - sin φ)` and `∫ (cos φ, sin φ, u∥/u⊥) e^{i(nφ - b sin φ)} dφ/2π`
+gives `w`. The harmonic `n > 0` resonates at `γ = nY + N∥u∥`. In the cold limit the n = ±1
+terms give ε_xy = -iD with D = -XY/(1-Y²); the x–z and y–z entries of `w w†` (odd in u∥)
+are not visible there and follow from the same integral.
 """
-function bessel_matrix(n::Int, b::Real, upar::Real, uperp::Real)
+function harmonic_vector(n::Int, b::Real, upar::Real, uperp::Real)
     Jn = besselj(n, b)
     Jnp = 0.5 * (besselj(n - 1, b) - besselj(n + 1, b))
-    nJb = b > 1e-12 ? n * Jn / b : (n == 1 ? 0.5 : 0.0)     # (n/b) J_n(b), finite at b -> 0
-    # T = w w† (positive semidefinite by construction). The sign of the first
-    # component is the electron one: in the cold limit the n = ±1 terms must give
-    # ε_xy = -iD with D = -XY/(1-Y²), which fixes it to -(n/b)J_n.
-    w = [-nJb, -im * Jnp, Jn * upar / uperp]
+    nJb = b > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)     # (n/b) J_n(b), finite at b -> 0
+    return [nJb, im * Jnp, Jn * upar / uperp]
+end
+
+"""
+    bessel_matrix(n, b, upar, uperp)
+
+Stix's harmonic matrix `T^n = w w†` (positive semidefinite by construction), see [`harmonic_vector`](@ref)
+"""
+function bessel_matrix(n::Int, b::Real, upar::Real, uperp::Real)
+    w = harmonic_vector(n, b, upar, uperp)
     return w * w'
 end
 
@@ -190,16 +202,12 @@ function hermitian_tensor(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Real; n
         for (uperp, dup) in nodes
             uperp > 1e-9 || continue
             b = Nperp * uperp / Y
-            Jn = besselj(n, b)
-            Jnp = 0.5 * (besselj(n - 1, b) - besselj(n + 1, b))
-            nJb = b > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)
-            w1 = -nJb
-            w2 = -im * Jnp
+            w1, w2, w3 = harmonic_vector(n, b, uperp, uperp)     # w3 = J_n (u∥/u⊥) at u∥ = u⊥
             # numerator N(u∥) = (u⊥² f'(γ)/γ)(γ+E) T, f' = -μ f_M, as a 3x3 Hermitian matrix
             function numer(upar)
                 γ = sqrt(1 + uperp^2 + upar^2)
                 E = n * Y + Npar * upar
-                w = [w1, w2, Jn * upar / uperp]
+                w = [w1, w2, w3 * upar / uperp]
                 return (uperp^2 * (-μ * fnorm * exp(-μ * (γ - 1))) / γ * (γ + E)) .* (w * w')
             end
             Q(upar) = c * upar^2 - 2 * n * Y * Npar * upar + (1 + uperp^2 - n^2 * Y^2)

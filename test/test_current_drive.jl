@@ -53,8 +53,8 @@
                 O2 = gb["intinbeam"][3] == 1 && nharm >= 2
                 # (Julia ncdroutine=1: bounce-averaged Lorentz-model response) vs Fortran ncdroutine=1,
                 # (Julia ncdroutine=2: rescaled by the full-operator Spitzer function) vs Fortran ncdroutine=2.
-                # Second-harmonic O-mode is skipped: its weak absorption straddles the cold resonance,
-                # and which side dominates (hence the sign) depends on the warm corrections of stage 3b.
+                # Second-harmonic O-mode: the sign is tested, the magnitude is not — its weak absorption
+                # (Julia 1.40 vs Fortran 1.25 MW) straddles the cold resonance and the current follows it.
                 for (ncdr, Iref, tol) in ((1, I1, 0.35), (2, I2, 0.3))
                     p = TORBEAM.TorbeamParams(; (Symbol(k) => v isa String ? Symbol(v) : v for (k, v) in golden["params"])..., backend=:julia, ncdroutine=ncdr)
                     inputs = TORBEAM.beam_inputs(dd, ibeam, p, eq)
@@ -62,9 +62,9 @@
                     I = out.rhoresult[13]
                     @info "$case $(gb["name"]) ncdroutine=$ncdr: I_cd $(round(I; digits=2)) kA vs Fortran $(round(Iref; digits=2)) kA"
                     # only where the current is not a near-cancellation (> 1 kA per MW absorbed)
-                    if abs(Iref) > 1.0 * gb["rhoresult"][14] && !O2
+                    if abs(Iref) > 1.0 * gb["rhoresult"][14]
                         @test sign(I) == sign(Iref)
-                        @test abs(I - Iref) < tol * abs(Iref)
+                        O2 || @test abs(I - Iref) < tol * abs(Iref)
                         # the current profile is where the power is: |j|-weighted mean rho agrees
                         ρ = out.t2ndata[1:TORBEAM.NPNT]
                         j = out.t2ndata[2TORBEAM.NPNT+1:3TORBEAM.NPNT]
