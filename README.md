@@ -75,8 +75,8 @@ setting by setting, and the Julia backend adds higher-fidelity options on top:
 | `nabsroutine` | 1 (default) | warm (relativistic Hermitian) N⊥ and polarization in the resonant layer, absorption from the complex root of the full relativistic dispersion relation, α = 2k₀ Im N⊥ (x̂·v̂) (Farina's WARMDISP route) | absorbed powers within 1 % (DIII-D O2 1.27 vs 1.25 MW), deposition medians to ≤ 0.005 on both machines |
 | | 2 | the same N⊥ and polarization with the weak-damping absorption α = 2k₀κ, κ = −(e*ε^a e)/(v̂·∂λ/∂N) | 2–4× cheaper; identical on ITER, DIII-D O2 absorbs 12 % too much |
 | | 0 | cold N⊥ and polarization | fast path |
-| `nprofcalc` | 1 (default) | Poli et al. 2018 Eq. 14: each absorption step spread over the beam amplitude on the vertical plane through the step (the resonance taken as vertical), every sample on its own flux surface | ITER widths (16–84 %) within 10 %, peaks within 8 %; DIII-D medians to 0.001, widths 20–30 % wider |
-| | 2 | the same on the local iso-Y surface (the actual resonance surface), shift limited to 2ξ for grazing crossings | narrower by 15–25 % than the Fortran |
+| `nprofcalc` | 1 (default) | Poli et al. 2018 Eq. 14: each absorption step spread over the beam amplitude on the vertical plane through the step (the resonance taken as vertical), every sample on its own flux surface | ITER medians to 0.01, widths (16–84 %) within 10 % on four beams, +20 % (pedestal-grazing pol66_tor−20, with a spike at the pedestal) and +32 % (pol66); DIII-D medians to 0.003, widths 20–30 % wider |
+| | 2 | the same on the local iso-Y surface (the actual resonance surface), shift limited to 2ξ for grazing crossings | narrower by 15–55 % than the Fortran |
 
 The driven current is reported as the toroidal current density
 j_tor = ⟨j∥⟩ F⟨1/R²⟩/(⟨B⟩⟨1/R⟩) and the total as ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor, which is
@@ -104,6 +104,12 @@ To regenerate the goldens (needs FUSE, run on omega):
 
     module load torbeam/gcc11.x
     julia --project=<env with FUSE, JSON and this package dev'ed> test/goldens/generate.jl
+
+To see how the Julia backend compares with the Fortran on every golden beam,
+first with the same reduced models (the defaults) and then with the
+higher-fidelity options (needs only the JSON files, 20–40 min):
+
+    julia --project=<env with JSON and this package dev'ed> test/goldens/compare.jl
 
 ## References
 
