@@ -132,8 +132,8 @@ for (case, spec) in CASES
     for ibeam in eachindex(dd.ec_launchers.beam)
         inputs = TORBEAM.beam_inputs(dd, ibeam, params, eq)
         out = TORBEAM.fortran_beam(inputs, params)
-        # the Fortran's Lin-Liu current without momentum conservation (ncdroutine=1),
-        # the reference for the Julia backend's adjoint solver until it has that correction
+        # the Fortran's ncdroutine=1 current and profile: the reference for the Julia
+        # ncdroutine=1 and 3 models
         params1 = TORBEAM.TorbeamParams(; ncdroutine=1)
         out1 = TORBEAM.fortran_beam(TORBEAM.beam_inputs(dd, ibeam, params1, eq), params1)
         println("  beam $ibeam $(dd.ec_launchers.beam[ibeam].name): P_abs = $(round(out.rhoresult[14]; digits=4)) MW, I_cd = $(round(out.rhoresult[13]; digits=2)) kA, rho = $(round(out.rhoresult[1]; digits=3)), flag = $(Int(out.rhoresult[20])), $(out.iend) ray points")

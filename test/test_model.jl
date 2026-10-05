@@ -1,4 +1,4 @@
-# Stage 1: the plasma/equilibrium model layer reproduces its inputs and is differentiable
+# The plasma/equilibrium model layer reproduces its inputs and is differentiable
 
 import ForwardDiff
 import Interpolations

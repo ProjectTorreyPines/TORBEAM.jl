@@ -82,11 +82,7 @@ The driven current is reported as the toroidal current density
 j_tor = ⟨j∥⟩ F⟨1/R²⟩/(⟨B⟩⟨1/R⟩) and the total as ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor, which is
 how the Fortran's totals and profiles relate. The beam widths agree with the
 Fortran's peripheral rays to 2 % on ITER and 6 % on DIII-D along the whole
-path (a kink of the density at the separatrix used to widen the poloidal beam
-width by 10–20 %: a kink is a delta function in the second derivatives of the
-dispersion function, which the beam-matrix integration steps over while the
-rays feel it; the density is now continued with its own slope beyond the last
-profile point). The beam matrix is checked on every golden beam against the
+path. The beam matrix is checked on every golden beam against the
 ABCD propagation of a finite-difference ray family (`abcd_widths`: first
 derivatives of the dispersion function only, no Riccati integration, valid for
 the complex beam matrix and hence including diffraction): the two agree to

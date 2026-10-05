@@ -1,4 +1,4 @@
-# Stage 4: adjoint current drive
+# Adjoint current drive
 
 @testset "current drive" begin
     @testset "Spitzer function, uniform field" begin
@@ -53,10 +53,8 @@
                 O2 = gb["intinbeam"][3] == 1 && nharm >= 2
                 # (Julia ncdroutine=1: bounce-averaged Lorentz-model response) vs Fortran ncdroutine=1,
                 # (Julia ncdroutine=2: rescaled by the full-operator Spitzer function) vs Fortran ncdroutine=2.
-                # Second-harmonic O-mode: the sign is tested, the magnitude is not — its weak absorption
-                # (Julia 1.27 vs Fortran 1.25 MW) straddles the cold resonance and the current follows it.
-                # DIII-D X2: both models land 10-13 % above the Fortran with the complex warm root
-                # (nabsroutine=1; 8-10 % with the weak-damping coefficient), ITER within 1-5 %.
+                # O2: sign only (weak absorption straddling the cold resonance). DIII-D tolerance
+                # 15 %: known systematic difference for absorption inboard of the axis (README).
                 tolD3D = startswith(case, "D3D") ? 0.15 : 0.0
                 for (ncdr, Iref, tol) in ((1, I1, max(0.12, tolD3D)), (2, I2, max(0.1, tolD3D)))
                     p = TORBEAM.TorbeamParams(; (Symbol(k) => v isa String ? Symbol(v) : v for (k, v) in golden["params"])..., backend=:julia, ncdroutine=ncdr)
@@ -183,8 +181,7 @@ end
     # suprathermal electrons: the test-particle-only response must stay above the Lorentz one
     # (exact thermal rates lie below their 1/u³ asymptotes) and tend to it from above, with only
     # a weak dependence on μ at fixed x = u/u_T — the γ² drag and the γ³ energy diffusion then
-    # cancel on the relativistic Maxwellian (detailed balance); with the non-relativistic γ of the
-    # energy diffusion the leftover drag drove the ratio to 0.85 at x = 3 for μ = 51
+    # cancel on the relativistic Maxwellian (detailed balance)
     fs = TORBEAM.FluxSurface(0.5, fill(6.0, n), zeros(n), fill(5.0, n), fill(0.1, n), 5.0, 5.0, 1.0)
     ratios = Dict{Float64,Vector{Float64}}()
     for (μ, umax) in ((51.1, 1.5), (200.0, 1.0))

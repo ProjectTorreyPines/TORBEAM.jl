@@ -91,10 +91,8 @@ function PlasmaModel(inputs::BeamInputs; edge_decay::Float64=0.02, nρ::Int=401,
     end
 
     # decay length of the density beyond the last profile point: continue the profile's own
-    # slope there (C¹ junction, no kink), capped at `edge_decay`. A kink in ne is a delta
-    # function in the second derivatives of the dispersion function, which the beam matrix
-    # (Riccati) integration steps over without seeing it while the rays feel it: the beam
-    # widths then disagree with a bundle of rays by 10-20 % downstream.
+    # slope (C¹ junction), capped at `edge_decay`. A kink in ne is a delta function in the
+    # second derivatives of the dispersion function, which the beam-matrix integration cannot see.
     slope = Interpolations.gradient(ne, ρp[end]^2)[1] * 2ρp[end]     # dne/dρ at the edge
     L = slope < 0 ? min(edge_decay, -nep[end] / slope) : edge_decay
     fi = inputs.floatinbeam

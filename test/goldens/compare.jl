@@ -107,13 +107,11 @@ for case in cases
     end
     println("""
     (Fortran / Julia. nprofcalc=2 spreads each absorption step on the local resonance surface
-    instead of the vertical plane: profiles 15-55 % narrower than the Fortran's. ncdroutine=3
-    solves the bounce-averaged adjoint equation exactly in (u, λ) with the same high-velocity
-    operator as the separable Lin-Liu model of ncdroutine=1 (no momentum conservation), so it
-    is compared with the Fortran's ncdroutine=1 current: within 3 % on ITER, +12-14 % on the
-    DIII-D X2 beams like the reduced model. ncdroutine=4 adds the thermal collision rates, energy
-    diffusion and the e-e field term, is validated against the Spitzer-Härm and Sauter
-    conductivities, and is compared with the Fortran's momentum-conserving ncdroutine=2:
-    3-20 % below on ITER, 10 % above on the DIII-D X2 beams.)
+    instead of the vertical plane. ncdroutine=3 solves the bounce-averaged adjoint equation
+    exactly in (u, λ) with the high-velocity operator of the Lin-Liu model and no momentum
+    conservation, so it is compared with the Fortran's ncdroutine=1 current. ncdroutine=4 adds
+    the thermal collision rates, energy diffusion and the e-e field term (validated against the
+    Spitzer-Härm and Sauter conductivities) and is compared with the Fortran's momentum-
+    conserving ncdroutine=2. The README's switch table lists the typical differences.)
     """)
 end

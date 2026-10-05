@@ -1,4 +1,4 @@
-# Stage 2: paraxial beam tracing against an analytic vacuum Gaussian beam and the golden rays
+# Paraxial beam tracing against an analytic vacuum Gaussian beam and the Fortran rays
 
 import LinearAlgebra: norm
 
@@ -97,9 +97,7 @@ end
                 # the 1/e half-width along the horizontal transverse direction (wh) and its
                 # upper/lower rays the half-width along v × e_h (wv), drawn in the poloidal plane
                 # (for toroidally steered beams that is not the cut by the poloidal plane, wp).
-                # Agreement is ≤ 2 % on ITER and ≤ 6 % on the DIII-D rays; the
-                # DIII-D O2 beam's horizontal width is 10-18 % narrower than the Fortran's
-                # along the whole path (open, see the README)
+                # DIII-D O2 horizontal width: known difference (README), hence the looser wh tolerance
                 O2 = gb["intinbeam"][3] == 1 && round(Int, gb["floatinbeam"][1] / (27.99e9 * abs(gb["floatinbeam"][27]))) >= 2
                 for frac in (0.25, 0.5, 0.9)
                     i = argmin(abs.(g.s .- frac * smax))
@@ -108,10 +106,8 @@ end
                     tol = frac < 0.9 ? (case == "D3D" ? 0.06 : 0.03) : 0.08
                     @test bw.wh ≈ g.wh[i] rtol = (O2 && case == "D3D" ? 0.2 : tol)
                     @test bw.wv ≈ g.wv[i] rtol = tol
-                    # the beam matrix against the ABCD propagation of a finite-difference ray
-                    # family (`abcd_widths`: first derivatives of H only, no Riccati integration,
-                    # includes diffraction): the same widths to 1 %, and the eikonal constraint
-                    # Re M ∂H/∂N = -∂H/∂x holds along the ray
+                    # beam matrix vs the ABCD propagation of a finite-difference ray family
+                    # (`abcd_widths`), and the eikonal constraint Re M ∂H/∂N = -∂H/∂x
                     a = TORBEAM.abcd_widths(b, m, g.s[i])
                     @test a.wh ≈ bw.wh rtol = 0.01
                     @test a.wv ≈ bw.wv rtol = 0.01

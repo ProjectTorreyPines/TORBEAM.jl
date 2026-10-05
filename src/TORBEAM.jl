@@ -202,10 +202,8 @@ function beam_inputs(dd::IMAS.dd, ibeam::Int, torbeam_params::TorbeamParams, eq)
     intinbeam = zeros(Int32, MAXINT)
     floatinbeam = zeros(Float64, MAXFLT)
 
-    # IT LOOKS LIKE TORBEAM NEEDS PHI = 0, OTHERWISE IT DOES NOT TREAT THE BEAM PROPERLY
-    # BUT WE WILL RESTORE THE ACTUAL PHI ANGLE AFTER THE RAY-TRACING, SO WE DON'T
-    # PUT ec_launchers%BEAM(IBEAM)%LAUNCHING_POSITION%PHI TO 0 ANYMORE
-    # (WE ARTIFICIALLY PUT PHI=0 IN floatinbeam(3) AND FLOTINBEAM(4) INSTEAD
+    # TORBEAM needs the launch at phi = 0 (floatinbeam[4:5]); the true toroidal angle is
+    # restored on the output rays in `run_torbeam`
 
     #intinbeam
     intinbeam[1] = 2  # tbr
@@ -231,9 +229,7 @@ function beam_inputs(dd::IMAS.dd, ibeam::Int, torbeam_params::TorbeamParams, eq)
     #floatinbeam(6:13):  analytic --> not filled)
     #floatinbeam(26:32): analytic --> not filled)
     floatinbeam[1] = @ddtime(beam.frequency.data)  # (xf)
-    # floatinbeam[2] = rad2deg(-@ddtime(beam.steering_angle_tor))
-    # floatinbeam[3] = rad2deg(@ddtime(beam.steering_angle_pol))
-    # TODO fix when OMAS is updated
+    # TODO: use the OMAS steering angles directly once ec_launchers is corrected
     steering_angle_tor = -asin(cos(@ddtime(beam.steering_angle_pol)) * sin(@ddtime(beam.steering_angle_tor)))
     steering_angle_pol = atan(tan(@ddtime(beam.steering_angle_pol)), cos(@ddtime(beam.steering_angle_tor)))
     alpha = steering_angle_pol
@@ -497,7 +493,6 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
     # ----------------------------
 
     # LOOP OVER BEAMS (LAUNCHERS)
-    #if(nbeam.gt.10) nbeam = 10 # MSR waiting for IMAS-3271
     resize!(dd.waves.coherent_wave, nbeam)
     for ibeam in 1:nbeam
         beam = dd.ec_launchers.beam[ibeam]
@@ -551,7 +546,7 @@ function run_torbeam(dd::IMAS.dd, torbeam_params::TorbeamParams)
             for iray in 1:torbeam_params.n_ray
                 r = 1.e-2 * trajout[1+3*(iray-1), :]
                 z = 1.e-2 * trajout[2+3*(iray-1), :]
-                # FIX after OMAS ec_launchers correction
+                # launcher phi convention: phi_TORBEAM = -phi_launch - π/2 (OMAS ec_launchers)
                 phi_launch = -beam.launching_position.phi[1] - pi / 2.0
                 phi = trajout[3+3*(iray-1), :] .+ phi_launch
                 x = cos.(phi) .* r

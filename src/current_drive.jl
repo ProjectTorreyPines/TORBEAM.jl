@@ -221,14 +221,11 @@ function linliu_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=300, nλ
     end
     F = Fhsl.(us)
     if momentum_conservation
-        # Momentum conservation as the ratio R(x) = K_mc(x)/K_hsl(x) of the non-relativistic
-        # l = 1 solutions with the trapped-particle sink (Romé et al. 1998, Appendix: the variational
-        # polynomial `variational_spitzer` for x = u/u_e ≤ 3, where it is within 3 % of the exact 1-D
-        # solution `SpitzerFunction1D(Z; sink)`, which takes over beyond and gives R → 1), applied to the fully
-        # relativistic high-speed-limit F̂ of Eq. 33 — the "relativistic adaptation" of that
-        # Appendix. (Marushchenko's weakly relativistic μ⁻¹ expansion of the polynomial, also in
-        # `variational_spitzer`, is not used here: against the fully relativistic high-speed limit
-        # its ratio grows with x instead of tending to 1, and the Fortran's enhancement does not.)
+        # Momentum conservation as the ratio K_mc(x)/K_hsl(x) of the non-relativistic l = 1
+        # solutions with the trapped-particle sink (Romé et al. 1998, Appendix: the variational
+        # polynomial `variational_spitzer` for x = u/u_e ≤ 3, the exact 1-D `SpitzerFunction1D`
+        # beyond), applied to the relativistic high-speed-limit F̂ of Eq. 33. The μ⁻¹ terms of
+        # `variational_spitzer` are not used here.
         uT = sqrt(2 / μ)
         _, χa = variational_spitzer(fc, Zeff, Inf)
         sp = SpitzerFunction1D(Zeff; sink=(1 - fc) / fc)
@@ -279,9 +276,8 @@ function full_operator_response(fs::FluxSurface, Zeff::Real, μ::Real; nu::Int=2
     # exact thermal rates (Chandrasekhar) with the relativistic γ factors of the high-velocity
     # limit: slowing-down νs = c3 (2G/x) γ², pitch-angle νD = c3 γ (φ - G + Z)/x³ (as in the Lorentz
     # march), and the energy diffusion fixed by detailed balance on the relativistic Maxwellian,
-    # D = ½νpar u² = νs γ/μ, i.e. νpar = c3 (2G/x³) γ³ — with the γ of the non-relativistic form
-    # the drag and the diffusion acting on f_M no longer cancel and the leftover νs(1 - 1/γ²)
-    # acts as a spurious drag on suprathermal electrons
+    # D = ½νpar u² = νs γ/μ, i.e. νpar = c3 (2G/x³) γ³ (any other power of γ leaves a spurious
+    # drag νs(1 - 1/γ²) on suprathermal electrons)
     function rates(u)
         x = u / uT
         γ = sqrt(1 + u^2)

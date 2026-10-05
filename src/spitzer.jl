@@ -196,18 +196,13 @@ end
 # is the classical Spitzer-Härm function in the normalisation of
 # `SpitzerFunction1D` (u⁴/(5+Z) at high speed), with no free constant.
 #
-# Two exact properties fix the e-i (Z_eff) parts: they are the same operator
-# moments in M and in Ω, so M_ij,Z ≡ ω_ij,Z, and their weakly relativistic
-# expansion follows from F_eM ≈ π^{-3/2} e^{-u²} (1 + (u⁴/2 - 15/8)/μ) and the
-# 1/γ of the test functions (one power for the i = 0 row, Γ₀ = 1, two
-# otherwise):
+# The e-i (Z_eff) parts are the same operator moments in M and in Ω (M_ij,Z ≡ ω_ij,Z)
+# and are evaluated analytically from F_eM ≈ π^{-3/2} e^{-u²} (1 + (u⁴/2 - 15/8)/μ) and
+# the 1/γ of the test functions (one power for the i = 0 row, two otherwise):
 #     ω⁽⁰⁾_ij,Z = Γ((n+2)/2),   ω⁽¹⁾_ij,Z = ½Γ((n+6)/2) - (15/8)Γ((n+2)/2) - c_i Γ((n+4)/2),
-# n = i + j, c₀ = 1, c_{i≥1} = 2. The printed ω⁽¹⁾ table satisfies this exactly;
-# the printed M⁽¹⁾ rows 0 and 1 do not, and the printed M⁽¹⁾_0j also carry an
-# e-e part, which momentum conservation (∫ p∥ C^ee = 0 at every order, as the
-# μ⁰ table shows) forbids. The e-i parts are therefore taken from the analytic
-# form for all i, j, the e-e part of row 0 is zero, and the e-e parts of the
-# other rows are the printed ones.
+# n = i + j, c₀ = 1, c_{i≥1} = 2. The e-e part of row 0 is zero (momentum conservation,
+# ∫ p∥ C^ee = 0); the other e-e parts are the published tables (Marushchenko 2009, A3/A4).
+# The published M⁽¹⁾ rows 0 and 1 violate these identities and are not used.
 
 """
     variational_spitzer(fc, Zeff, μ)
