@@ -41,8 +41,11 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Un
     m = cache.model
     l = Launch(inputs)
     nmax = torbeam_params.npow == 0 ? 0 : torbeam_params.nmaxh
-    warm = torbeam_params.nabsroutine == 1       # warm dispersion for N⊥/polarization (TORBEAM's Farina route)
-    b = trace_beam(m, l; rhostop=torbeam_params.rhostop, nmax, warm, reltol=torbeam_params.xrtol, abstol=torbeam_params.xatol)
+    # nabsroutine: 0 cold dispersion; 1 warm N⊥/polarization and absorption from the complex root
+    # of the warm dispersion relation (the Fortran's Farina route); 2 warm with weak-damping absorption
+    warm = torbeam_params.nabsroutine >= 1
+    complex_root = torbeam_params.nabsroutine == 1
+    b = trace_beam(m, l; rhostop=torbeam_params.rhostop, nmax, warm, complex_root, reltol=torbeam_params.xrtol, abstol=torbeam_params.xatol)
 
     # ray points every ~1 cm, as the Fortran stores them
     npts = max(2, min(ceil(Int, b.length / 0.01) + 1, NDAT))
@@ -78,7 +81,7 @@ function julia_beam(inputs::BeamInputs, torbeam_params::TorbeamParams; cache::Un
     else
         efficiency = nothing
     end
-    dep = deposition(b, m; efficiency, volumes=cache.volumes)
+    dep = deposition(b, m; efficiency, volumes=cache.volumes, method=torbeam_params.nprofcalc == 2 ? :shifted : :maj)
     t2ndata = zeros(3 * NPNT)
     t2ndata[1:NPNT] = dep.ρ
     t2ndata[NPNT+1:2NPNT] = dep.dPdV ./ 1e6          # MW/m³

@@ -1,6 +1,6 @@
 # Stage 3: absorption, deposition profiles and the Julia backend end to end
 
-import LinearAlgebra: eigvals, Hermitian
+import LinearAlgebra: eigvals, Hermitian, dot, norm, I
 
 @testset "absorption" begin
     @testset "anti-Hermitian tensor" begin
@@ -47,6 +47,37 @@ import LinearAlgebra: eigvals, Hermitian
             @test maximum(abs, wnum - TORBEAM.harmonic_vector(n, b, upar, uperp)) < 1e-10
         end
         @test TORBEAM.harmonic_vector(1, 0.0, 0.3, 0.5) ≈ [0.5, 0.5im, 0.0]
+    end
+
+    @testset "complex warm root" begin
+        # the analytic continuation of the tensors in N⊥ reduces to the real-argument values
+        μ = 510.99895 / 2.0
+        for f in (TORBEAM.antihermitian_tensor, TORBEAM.hermitian_tensor)
+            @test f(0.35, 0.505, complex(0.64, 0.0), 0.1, μ) ≈ f(0.35, 0.505, 0.64, 0.1, μ) atol = 1e-12
+        end
+        # weakly damped point (fundamental O-mode at 2 keV, far from the cold resonance): the
+        # complex root's imaginary part agrees with the weak-damping value to first order
+        X, Y, Npar, mode = 0.3, 0.97, 0.3, 1
+        n2 = TORBEAM.refractive_index2(X, Y, Npar^2 / (Npar^2 + 0.5), mode)
+        Np = sqrt(max(n2 - Npar^2, 1e-6))
+        for _ in 1:30
+            n2 = TORBEAM.refractive_index2(X, Y, Npar^2 / (Npar^2 + Np^2), mode)
+            Np = sqrt(max(n2 - Npar^2, 1e-6))
+        end
+        Npw, Dw = TORBEAM.warm_dispersion(X, Y, Npar, μ, mode, Np)
+        e = TORBEAM.null_vector(Dw)
+        num = real(dot(e, TORBEAM.antihermitian_tensor(X, Y, Npw, Npar, μ) * e))
+        λ(Nq) = (Nv = [Nq, 0.0, Npar]; real(dot(e, (Nv * Nv' - (Nq^2 + Npar^2) * I + TORBEAM.hermitian_tensor(X, Y, Nq, Npar, μ)) * e)))
+        h = 1e-4
+        κ0 = -num / ((λ(Npw + h) - λ(Npw - h)) / (2h))
+        @test 0 < κ0 < 0.01 * Npw
+        z = TORBEAM.complex_warm_root(X, Y, Npar, μ, mode, Npw, κ0)
+        @test z !== nothing
+        @test imag(z) ≈ κ0 rtol = 0.1
+        @test real(z) ≈ Npw rtol = 0.01
+        # strongly damped: the root moves off the weak-damping value but stays a root
+        z2 = TORBEAM.complex_warm_root(0.35, 0.505, 0.1, μ, -1, 0.6469, 0.2556)
+        @test z2 !== nothing && imag(z2) > 0.1
     end
 
     @testset "warm dispersion" begin
@@ -135,8 +166,13 @@ import LinearAlgebra: eigvals, Hermitian
                 _, _, cg = cumulative(gb["t2ndata"], gb["volprof"])
                 @test c[end] ≈ out.rhoresult[14] rtol = 0.05
                 @test all(>=(0), dPdV)
-                median(c) = ρ[findfirst(>=(0.5 * c[end]), c)]
-                @test abs(median(c) - median(cg)) < 0.05
+                quantile(c, f) = ρ[findfirst(>=(f * c[end]), c)]
+                median(c) = quantile(c, 0.5)
+                @test abs(median(c) - median(cg)) < 0.02
+                # 16-84 % width within 40 % (ITER within 10 %, DIII-D 20-30 % wider, pol66 +33 %)
+                @test quantile(c, 0.84) - quantile(c, 0.16) ≈ quantile(cg, 0.84) - quantile(cg, 0.16) rtol = 0.4
+                # total absorbed power within 3 % (the DIII-D O2 case: 1.27 vs 1.25 MW)
+                @test out.rhoresult[14] ≈ gb["rhoresult"][14] rtol = 0.03
                 @info "$case $(gb["name"]): P_abs $(round(out.rhoresult[14]; digits=3)) vs $(round(gb["rhoresult"][14]; digits=3)) MW, median rho $(round(median(c); digits=3)) vs $(round(median(cg); digits=3)), (R,Z) of max ($(round(out.rhoresult[2]; digits=1)), $(round(out.rhoresult[3]; digits=1))) vs ($(round(gb["rhoresult"][2]; digits=1)), $(round(gb["rhoresult"][3]; digits=1))) cm"
                 if ibeam == 1
                     # flux-surface volumes against the Fortran's (its rho grid extends past 1)

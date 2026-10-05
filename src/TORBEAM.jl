@@ -11,9 +11,9 @@ Base.@kwdef struct TorbeamParams
     noout::Int = 0            # Screen output switch (0 = output enabled, 1 = output disabled)
     nrela::Int = 1            # Relativity consideration in absorption (0 = weakly, 1 = fully relativistic)
     nmaxh::Int = 3            # Number of harmonics to consider (1 to 5)
-    nabsroutine::Int = 1      # Absorption routine selection (0 = Westerhof, 1 = Farina)
+    nabsroutine::Int = 1      # Absorption routine (0 = Westerhof, 1 = Farina; Julia backend: 0 = cold dispersion, 1 = warm with the complex-root absorption, 2 = warm with weak-damping absorption)
     nastra::Int = 0           # Definition of driven current density (0 = Lin-Liu, 1 = ASTRA, 2 = JINTRAC)
-    nprofcalc::Int = 1        # Deposition profile calculation method (0 = standard, 1 = Maj method)
+    nprofcalc::Int = 1        # Deposition profile calculation method (0 = standard, 1 = Maj method; Julia backend only: 2 = resonance-shifted sampling)
     ncdharm::Int = 1          # Harmonic consideration in current drive efficiency (0 = lowest harmonic only, 1 = includes next harmonic)
     nrel::Int = 0             # Relativistic mass correction for reflectometry (1 = enabled, 0 = disabled)
     n_ray::Int = 5            # Number of rays used in beam tracing
@@ -219,9 +219,9 @@ function beam_inputs(dd::IMAS.dd, ibeam::Int, torbeam_params::TorbeamParams, eq)
     intinbeam[9] = torbeam_params.noout
     intinbeam[10] = torbeam_params.nrela
     intinbeam[11] = torbeam_params.nmaxh
-    intinbeam[12] = torbeam_params.nabsroutine
+    intinbeam[12] = min(torbeam_params.nabsroutine, 1)   # Julia-only 2 → the Fortran's Farina route
     intinbeam[13] = torbeam_params.nastra
-    intinbeam[14] = torbeam_params.nprofcalc
+    intinbeam[14] = min(torbeam_params.nprofcalc, 1)   # Julia-only 2 → the Fortran's Maj method
     intinbeam[15] = torbeam_params.ncdharm
     intinbeam[16] = 0
     intinbeam[17] = 0

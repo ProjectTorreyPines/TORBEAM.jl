@@ -68,18 +68,22 @@ setting by setting, and the Julia backend adds higher-fidelity options on top:
 
 | switch | value | model | agreement with the Fortran |
 |---|---|---|---|
-| `ncdroutine` | 1 | Lin-Liu et al. (2003): separable response χ = sgn(u∥) F(u) H(λ), slowing-down kept to its l = 1 moment (circulating fraction f_c), relativistic high-speed limit | ITER within 2 % (one beam 5 %), DIII-D X2 +9 %, near-perpendicular launches (near-cancelling currents) ×1.7–2.2 |
-| | 2 (default) | the same with momentum conservation: the variational Spitzer function of Romé et al. (1998) with the trapped-particle momentum sink, as the non-relativistic enhancement over the high-speed limit (`variational_spitzer`) | ITER within 2.5 % (one beam 5 %), DIII-D X2 +8 %; the enhancement itself matches to 1 % on both |
+| `ncdroutine` | 1 | Lin-Liu et al. (2003): separable response χ = sgn(u∥) F(u) H(λ), slowing-down kept to its l = 1 moment (circulating fraction f_c), relativistic high-speed limit | ITER within 2 % (one beam 5 %), DIII-D X2 +9–13 %, near-perpendicular launches (near-cancelling currents) ×1.7–2.2 |
+| | 2 (default) | the same with momentum conservation: the variational Spitzer function of Romé et al. (1998) with the trapped-particle momentum sink, as the non-relativistic enhancement over the high-speed limit (`variational_spitzer`) | ITER within 2.5 % (one beam 5 %), DIII-D X2 +8–12 %; the enhancement itself matches to 1 % on both |
 | | 3 | exact 2-D (u, λ) solution of the bounce-averaged adjoint equation with the same relativistic high-velocity operator | validated against the Lorentz-gas conductivity 1 − f_t (exact) and the separable model in the uniform limit |
 | | 4 | full linearized collision operator (exact thermal rates, energy diffusion, e–e field term, relativistic detailed balance) in the real trapped geometry | reproduces the Spitzer–Härm conductivity ratios and the neoclassical conductivity of Sauter et al. (1999) within a few %; 5–20 % below the Fortran's momentum-conserving currents |
-| `nabsroutine` | 1 (default) | warm (relativistic Hermitian) N⊥ and polarization in the resonant layer | ITER deposition medians to ≤ 0.005, DIII-D X2 0.013 inside |
+| `nabsroutine` | 1 (default) | warm (relativistic Hermitian) N⊥ and polarization in the resonant layer, absorption from the complex root of the full relativistic dispersion relation, α = 2k₀ Im N⊥ (x̂·v̂) (Farina's WARMDISP route) | absorbed powers within 1 % (DIII-D O2 1.27 vs 1.25 MW), deposition medians to ≤ 0.005 on both machines |
+| | 2 | the same N⊥ and polarization with the weak-damping absorption α = 2k₀κ, κ = −(e*ε^a e)/(v̂·∂λ/∂N) | 2–4× cheaper; identical on ITER, DIII-D O2 absorbs 12 % too much |
 | | 0 | cold N⊥ and polarization | fast path |
+| `nprofcalc` | 1 (default) | Poli et al. 2018 Eq. 14: each absorption step spread over the beam amplitude on the vertical plane through the step (the resonance taken as vertical), every sample on its own flux surface | ITER widths (16–84 %) within 10 %, peaks within 8 %; DIII-D medians to 0.001, widths 20–30 % wider |
+| | 2 | the same on the local iso-Y surface (the actual resonance surface), shift limited to 2ξ for grazing crossings | narrower by 15–25 % than the Fortran |
 
-Second-harmonic O-mode on DIII-D (weak absorption straddling the cold
-resonance) has the right current sign and ~40 % too much absorbed power and
-current. The driven current is reported as the toroidal current density
+The driven current is reported as the toroidal current density
 j_tor = ⟨j∥⟩ F⟨1/R²⟩/(⟨B⟩⟨1/R⟩) and the total as ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor, which is
-how the Fortran's totals and profiles relate.
+how the Fortran's totals and profiles relate. Known differences left on
+DIII-D: profile widths 20–30 % wider than the Fortran's (beam widths agree
+to 5 %), X2 currents +10–13 %, the near-cancelling near-perpendicular currents
+×2–3, second-harmonic O-mode current +34 %.
 
 The run is split into three steps that a backend plugs into:
 

@@ -57,10 +57,10 @@ gives `w`. The harmonic `n > 0` resonates at `γ = nY + N∥u∥`. In the cold l
 terms give ε_xy = -iD with D = -XY/(1-Y²); the x–z and y–z entries of `w w†` (odd in u∥)
 are not visible there and follow from the same integral.
 """
-function harmonic_vector(n::Int, b::Real, upar::Real, uperp::Real)
+function harmonic_vector(n::Int, b::Number, upar::Real, uperp::Real)
     Jn = besselj(n, b)
     Jnp = 0.5 * (besselj(n - 1, b) - besselj(n + 1, b))
-    nJb = b > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)     # (n/b) J_n(b), finite at b -> 0
+    nJb = abs(b) > 1e-12 ? n * Jn / b : (abs(n) == 1 ? 0.5 * sign(n) : 0.0)     # (n/b) J_n(b), finite at b -> 0
     return [nJb, im * Jnp, Jn * upar / uperp]
 end
 
@@ -69,10 +69,18 @@ end
 
 Stix's harmonic matrix `T^n = w w†` (positive semidefinite by construction), see [`harmonic_vector`](@ref)
 """
-function bessel_matrix(n::Int, b::Real, upar::Real, uperp::Real)
-    w = harmonic_vector(n, b, upar, uperp)
-    return w * w'
+function bessel_matrix(n::Int, b::Number, upar::Real, uperp::Real)
+    return harmonic_matrix(harmonic_vector(n, b, upar, uperp))
 end
+
+"""
+    harmonic_matrix(w)
+
+`T = w w†` written as `w w̃ᵀ` with `w̃` the vector with the explicit `i` conjugated and the Bessel
+functions not: identical for real Bessel argument, and the analytic continuation in `N⊥` (needed
+for the complex root of the dispersion relation) otherwise
+"""
+harmonic_matrix(w::AbstractVector) = w * transpose([w[1], -w[2], w[3]])
 
 """
     antihermitian_tensor(X, Y, Nperp, Npar, μ; nmax=3, rtol=1e-6)
@@ -81,7 +89,7 @@ Anti-Hermitian part of the relativistic Maxwellian dielectric tensor (local
 frame), `μ = mc²/Te`, summed over harmonics `1:nmax`:
     ε^a = π X Σₙ ∫d³u (u⊥² μ f / γ) T^n δ(γ - nY - N∥u∥),  f = μ e^{-μγ} / (4π K₂(μ))
 """
-function antihermitian_tensor(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Real; nmax::Int=3, rtol::Float64=1e-6)
+function antihermitian_tensor(X::Real, Y::Real, Nperp::Number, Npar::Real, μ::Real; nmax::Int=3, rtol::Float64=1e-6)
     εa = zeros(ComplexF64, 3, 3)
     (X <= 0 || abs(Npar) >= 1) && return εa
     fnorm = μ / (4π * besselkx(2, μ))         # f = fnorm * exp(-μ(γ-1))  (besselkx = e^μ K₂(μ))
@@ -114,9 +122,12 @@ end
 Power absorption coefficient α [1/m] at a plasma `state` `st` for wave vector
 `N` and ray direction `v` (both in the global Cartesian frame). With `warm` the
 perpendicular index, the polarization and the wave-matrix derivative come from
-the warm dispersion relation where the plasma is resonant.
+the warm dispersion relation where the plasma is resonant, and with `complex_root`
+α = 2k₀ Im N⊥ (x̂·v̂) from the complex root of the full relativistic dispersion
+relation (`complex_warm_root`, the Fortran's `nabsroutine=1`); otherwise the
+weak-damping value α = 2k₀κ, κ = -(e*ε^a e)/(v̂·∂λ/∂N).
 """
-function absorption_coefficient(st, w::WaveParams, N::AbstractVector, v::AbstractVector; nmax::Int=3, warm::Bool=true)
+function absorption_coefficient(st, w::WaveParams, N::AbstractVector, v::AbstractVector; nmax::Int=3, warm::Bool=true, complex_root::Bool=true)
     X, Y = plasma_XY(st, w)
     (X <= 0 || st.Te <= 0) && return 0.0
     ws = wave_state(st, w, N; nmax, warm)
@@ -131,6 +142,15 @@ function absorption_coefficient(st, w::WaveParams, N::AbstractVector, v::Abstrac
     denom = dot(vhat, ws.xhat) * dλ_perp + dot(vhat, ws.bhat) * dλ_par
     denom < 0 || return 0.0                        # positive-energy wave: ∂λ/∂N antiparallel to v̂
     κ = -num / denom
+    if warm && complex_root && ws.warm
+        # TORBEAM's nabsroutine=1 route (Farina's WARMDISP): the imaginary part of N⊥ from the
+        # complex root of the full relativistic dispersion relation, projected on the ray
+        xv = dot(vhat, ws.xhat)
+        if xv > 0.05
+            z = complex_warm_root(ws.X, ws.Y, ws.Npar, ws.μ, w.mode, ws.Nperp, κ / xv; nmax)
+            z === nothing || return 2 * w.k0 * imag(z) * xv
+        end
+    end
     return 2 * w.k0 * κ
 end
 
@@ -171,7 +191,7 @@ const GL_PERP = gauss_legendre(32)
 Hermitian part (including the identity) of the relativistic Maxwellian
 dielectric tensor in the local frame, harmonics `-1:nmax` (n ≤ -2 are O(b⁴))
 """
-function hermitian_tensor(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Real; nmax::Int=3)
+function hermitian_tensor(X::Real, Y::Real, Nperp::Number, Npar::Real, μ::Real; nmax::Int=3)
     εh = Matrix{ComplexF64}(I, 3, 3)
     (X <= 0 || abs(Npar) >= 1) && return εh
     fnorm = μ / (4π * besselkx(2, μ))
@@ -208,7 +228,7 @@ function hermitian_tensor(X::Real, Y::Real, Nperp::Real, Npar::Real, μ::Real; n
                 γ = sqrt(1 + uperp^2 + upar^2)
                 E = n * Y + Npar * upar
                 w = [w1, w2, w3 * upar / uperp]
-                return (uperp^2 * (-μ * fnorm * exp(-μ * (γ - 1))) / γ * (γ + E)) .* (w * w')
+                return (uperp^2 * (-μ * fnorm * exp(-μ * (γ - 1))) / γ * (γ + E)) .* harmonic_matrix(w)
             end
             Q(upar) = c * upar^2 - 2 * n * Y * Npar * upar + (1 + uperp^2 - n^2 * Y^2)
             disc = n^2 * Y^2 * Npar^2 - c * (1 + uperp^2 - n^2 * Y^2)
@@ -275,6 +295,39 @@ function warm_dispersion(X::Real, Y::Real, Npar::Real, μ::Real, mode::Integer, 
 end
 
 """
+    complex_warm_root(X, Y, Npar, μ, mode, Nperp0, κ0; nmax=3)
+
+Complex root `N⊥` of the full relativistic dispersion relation
+`det(NN - N²I + ε^h(N⊥) + iε^a(N⊥)) = 0` at fixed real `N∥`, by a complex secant started at
+`Nperp0 + iκ0` (the warm real root and the weak-damping imaginary part); the tensors are
+continued analytically in `N⊥` through their Bessel arguments. Returns `nothing` when the
+iteration does not converge to a nearby root with `Im N⊥ ≥ 0`.
+"""
+function complex_warm_root(X::Real, Y::Real, Npar::Real, μ::Real, mode::Integer, Nperp0::Real, κ0::Real; nmax::Int=3)
+    function f(Np)
+        N = [Np, 0.0, Npar]
+        D = N * transpose(N) .- (Np^2 + Npar^2) .* Matrix{ComplexF64}(I, 3, 3) .+ hermitian_tensor(X, Y, Np, Npar, μ; nmax) .+ im .* antihermitian_tensor(X, Y, Np, Npar, μ; nmax)
+        return det(D)
+    end
+    z0 = complex(Nperp0, κ0)
+    z1 = complex(Nperp0, 1.5κ0 + 1e-5)
+    f0, f1 = f(z0), f(z1)
+    z = z1
+    for _ in 1:12
+        f1 == f0 && break
+        δ = -f1 * (z1 - z0) / (f1 - f0)
+        a = abs(δ)
+        a > 0.1 * max(Nperp0, 0.1) && (δ *= 0.1 * max(Nperp0, 0.1) / a)
+        z = z1 + δ
+        z0, f0 = z1, f1
+        z1, f1 = z, f(z)
+        abs(δ) < 1e-8 && break
+    end
+    ok = isfinite(z) && imag(z) >= 0 && abs(real(z) - Nperp0) < 0.3 * max(Nperp0, 0.1) && abs(f1) < 1e-3 * abs(f(complex(Nperp0, κ0)))
+    return ok ? z : nothing
+end
+
+"""
     null_vector(M)
 
 Unit null vector of a (nearly) singular complex 3x3 matrix, from its row cross products
@@ -329,5 +382,5 @@ function wave_state(st, w::WaveParams, N::AbstractVector; nmax::Int=3, warm::Boo
         Nperp = Nperp_w
         λ = (Np, Npl) -> (Nv = [Np, 0.0, Npl]; real(dot(e, (Nv * Nv' - (Np^2 + Npl^2) * I + hermitian_tensor(X, Y, Np, Npl, μ; nmax)) * e)))
     end
-    return (; xhat, yhat, bhat, Nperp, Npar, e, εa, λ, X, Y, μ)
+    return (; xhat, yhat, bhat, Nperp, Npar, e, εa, λ, X, Y, μ, warm=warm && resonant)
 end
