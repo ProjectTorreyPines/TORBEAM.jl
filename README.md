@@ -14,7 +14,7 @@ Run the TORBEAM beam tracing code from Julia
 
 This package calls the FORTRAN API.
 
-The function `torbeam` that runs TORBEAM for all launchers with non-zero power for the current time point.
+The function `torbeam` that runs TORBEAM for all launchers with non-zero power for the current time point. Requires the environment variable $TORBEAM_DIR to be pointing to the `bin` folder with the TORBEAM executables.
 
 Outputs are stored in the `waves` and the `core_sources` IDS. 
 
