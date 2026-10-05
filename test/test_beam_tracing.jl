@@ -85,18 +85,21 @@ end
                 # the Fortran stops once the power is absorbed; without absorption our ray
                 # can only be longer
                 @test b.length >= g.s[end] - 0.05
-                # beam widths: cuts by the horizontal (wh) and poloidal (wp) planes. They
-                # agree to a few % where the beam crosses smooth profile regions, but are
-                # sensitive to how a coarsely tabulated pedestal is interpolated when the
-                # beam grazes it, so they are only asserted over the first quarter of the path
+                # beam widths against the Fortran's peripheral rays: its left/right rays carry
+                # the 1/e half-width along the horizontal transverse direction (wh) and its
+                # upper/lower rays the half-width along v × e_h (wv), drawn in the poloidal plane
+                # (for toroidally steered beams that is not the cut by the poloidal plane, wp).
+                # Agreement is ≤ 2 % on ITER and ≤ 6 % on the DIII-D rays; the
+                # DIII-D O2 beam's horizontal width is 10-18 % narrower than the Fortran's
+                # along the whole path (open, see the README)
+                O2 = gb["intinbeam"][3] == 1 && round(Int, gb["floatinbeam"][1] / (27.99e9 * abs(gb["floatinbeam"][27]))) >= 2
                 for frac in (0.25, 0.5, 0.9)
                     i = argmin(abs.(g.s .- frac * smax))
                     bw = TORBEAM.beam_widths(b, g.s[i])
-                    @info "  s = $(round(g.s[i]; digits=2)) m: wh $(round(bw.wh*100; digits=2)) vs $(round(g.wh[i]*100; digits=2)) cm, wp $(round(bw.wp*100; digits=2)) vs $(round(g.wv[i]*100; digits=2)) cm"
-                    if frac <= 0.25
-                        @test bw.wh ≈ g.wh[i] rtol = 0.2
-                        @test bw.wp ≈ g.wv[i] rtol = 0.2
-                    end
+                    @info "  s = $(round(g.s[i]; digits=2)) m: wh $(round(bw.wh*100; digits=2)) vs $(round(g.wh[i]*100; digits=2)) cm, wv $(round(bw.wv*100; digits=2)) vs $(round(g.wv[i]*100; digits=2)) cm"
+                    tol = frac < 0.9 ? (case == "D3D" ? 0.06 : 0.03) : 0.08
+                    @test bw.wh ≈ g.wh[i] rtol = (O2 && case == "D3D" ? 0.2 : tol)
+                    @test bw.wv ≈ g.wv[i] rtol = tol
                 end
             end
         end

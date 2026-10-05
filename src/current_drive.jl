@@ -49,34 +49,7 @@ struct FluxSurface
 end
 
 function FluxSurface(m::PlasmaModel, ρ::Real; nθ::Int=180)
-    ψn_target = ρ^2
-    θs = range(0, 2π; length=nθ + 1)[1:nθ]
-    R = zeros(nθ)
-    Z = zeros(nθ)
-    for (i, θ) in enumerate(θs)
-        cθ, sθ = cos(θ), sin(θ)
-        f(r) = psi_norm(m, m.R_axis + r * cθ, m.Z_axis + r * sθ) - ψn_target
-        # search up to the edge of the equilibrium grid along this direction
-        rmax = min(cθ > 0 ? (m.R[end] - m.R_axis) / cθ : cθ < 0 ? (m.R[1] - m.R_axis) / cθ : Inf,
-                   sθ > 0 ? (m.Z[end] - m.Z_axis) / sθ : sθ < 0 ? (m.Z[1] - m.Z_axis) / sθ : Inf) * 0.999
-        # bracket the first crossing from the axis outwards, then bisect
-        lo, hi = 0.0, rmax
-        n = 400
-        for k in 1:n
-            r = rmax * k / n
-            if f(r) > 0
-                lo, hi = rmax * (k - 1) / n, r
-                break
-            end
-        end
-        for _ in 1:60
-            mid = 0.5 * (lo + hi)
-            f(mid) > 0 ? (hi = mid) : (lo = mid)
-        end
-        r = 0.5 * (lo + hi)
-        R[i] = m.R_axis + r * cθ
-        Z[i] = m.Z_axis + r * sθ
-    end
+    R, Z = flux_contour(m, ρ; nθ)
     B = zeros(nθ)
     Bp = zeros(nθ)
     for i in 1:nθ

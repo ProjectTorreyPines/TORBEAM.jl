@@ -75,15 +75,22 @@ setting by setting, and the Julia backend adds higher-fidelity options on top:
 | `nabsroutine` | 1 (default) | warm (relativistic Hermitian) N⊥ and polarization in the resonant layer, absorption from the complex root of the full relativistic dispersion relation, α = 2k₀ Im N⊥ (x̂·v̂) (Farina's WARMDISP route) | absorbed powers within 1 % (DIII-D O2 1.27 vs 1.25 MW), deposition medians to ≤ 0.005 on both machines |
 | | 2 | the same N⊥ and polarization with the weak-damping absorption α = 2k₀κ, κ = −(e*ε^a e)/(v̂·∂λ/∂N) | 2–4× cheaper; identical on ITER, DIII-D O2 absorbs 12 % too much |
 | | 0 | cold N⊥ and polarization | fast path |
-| `nprofcalc` | 1 (default) | Poli et al. 2018 Eq. 14: each absorption step spread over the beam amplitude on the vertical plane through the step (the resonance taken as vertical), every sample on its own flux surface | ITER medians to 0.01, widths (16–84 %) within 10 % on four beams, +20 % (pedestal-grazing pol66_tor−20, with a spike at the pedestal) and +32 % (pol66); DIII-D medians to 0.003, widths 20–30 % wider |
-| | 2 | the same on the local iso-Y surface (the actual resonance surface), shift limited to 2ξ for grazing crossings | narrower by 15–55 % than the Fortran |
+| `nprofcalc` | 1 (default) | Poli et al. 2018 Eq. 14: each absorption step spread over the beam amplitude on the vertical plane through the step (the resonance taken as vertical), every sample on its own flux surface | medians to 0.005, 16–84 % widths within 8 % and peaks within 13 % on all twelve golden beams |
+| | 2 | the same on the local iso-Y surface (the actual resonance surface), shift limited to 2ξ for grazing crossings | narrower than the Fortran's vertical-plane profiles: 16–84 % widths 17–33 % smaller on ITER, up to 57 % on DIII-D (`test/goldens/compare.jl`) |
 
 The driven current is reported as the toroidal current density
 j_tor = ⟨j∥⟩ F⟨1/R²⟩/(⟨B⟩⟨1/R⟩) and the total as ∫ (⟨j∥⟩/⟨B⟩) dΨ_tor, which is
-how the Fortran's totals and profiles relate. Known differences left on
-DIII-D: profile widths 20–30 % wider than the Fortran's (beam widths agree
-to 5 %), X2 currents +10–13 %, the near-cancelling near-perpendicular currents
-×2–3, second-harmonic O-mode current +34 %.
+how the Fortran's totals and profiles relate. The beam widths agree with the
+Fortran's peripheral rays to 2 % on ITER and 6 % on DIII-D along the whole
+path (a kink of the density at the separatrix used to widen the poloidal beam
+width by 10–20 %: a kink is a delta function in the second derivatives of the
+dispersion function, which the beam-matrix integration steps over while the
+rays feel it; the density is now continued with its own slope beyond the last
+profile point). Known differences left on DIII-D: X2 currents +10–13 % (the
+local efficiency j/(dP/dV) is 7–15 % above the Fortran's at the same ρ, under
+investigation), the near-cancelling near-perpendicular currents ×2–3, the
+second-harmonic O-mode current +34 % and its horizontal beam width 10–18 %
+narrower.
 
 The run is split into three steps that a backend plugs into:
 

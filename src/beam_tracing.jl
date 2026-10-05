@@ -203,9 +203,11 @@ Beam cross-section at arclength `s`: central ray position `x` [m] and the 1/e
 amplitude half-widths [m] along three directions ⟂ to the group velocity
 (`perp=:v`, default) or to the wave vector (`perp=:N`):
 
-  - `wh` along `eh`, the horizontal direction ("left/right rays": the cut by the horizontal plane),
-  - `wv` along `ev = v × eh`,
-  - `wp` along `ep`, the direction in the poloidal (R-Z) plane ("upper/lower rays": the cut by the poloidal plane).
+  - `wh` along `eh`, the horizontal direction (the Fortran's "left/right rays"),
+  - `wv` along `ev = v × eh` (the half-width the Fortran's "upper/lower rays" carry, drawn
+    along the poloidal direction `ep`),
+  - `wp` along `ep`, the direction in the poloidal (R-Z) plane ⟂ to the ray, i.e. the cut
+    of the beam by the poloidal plane (equal to `wv` for beams without toroidal steering).
 """
 function beam_widths(b::BeamSolution, s::Real; perp::Symbol=:v)
     u = b.sol(s)

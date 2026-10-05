@@ -23,8 +23,9 @@ grid), not ρ_pol: no square root is taken along the beam, so the derivatives
 ForwardDiff propagates stay finite through the magnetic axis.
 
 Beyond the last profile point `ρ_edge` (normally 1, the separatrix) the density
-decays as `exp(-(ρ-ρ_edge)/edge_decay)` and Te is held at its edge value, so the
-beam sees a smooth vacuum-plasma transition.
+decays as `exp(-(ρ-ρ_edge)/L)` with `L` the profile's own decay length at the
+edge, `-ne/(dne/dρ)`, capped at `edge_decay` (so the junction has no kink, see
+the constructor), and Te is held at its edge value.
 """
 struct PlasmaModel{RR<:AbstractRange,S2,S1}
     R::RR
@@ -89,9 +90,16 @@ function PlasmaModel(inputs::BeamInputs; edge_decay::Float64=0.02, nρ::Int=401,
         error("profile_interp must be :cubic or :linear")
     end
 
+    # decay length of the density beyond the last profile point: continue the profile's own
+    # slope there (C¹ junction, no kink), capped at `edge_decay`. A kink in ne is a delta
+    # function in the second derivatives of the dispersion function, which the beam matrix
+    # (Riccati) integration steps over without seeing it while the rays feel it: the beam
+    # widths then disagree with a bundle of rays by 10-20 % downstream.
+    slope = Interpolations.gradient(ne, ρp[end]^2)[1] * 2ρp[end]     # dne/dρ at the edge
+    L = slope < 0 ? min(edge_decay, -nep[end] / slope) : edge_decay
     fi = inputs.floatinbeam
     return PlasmaModel(R, Z, ψ, BR, Bφ, BZ, ψ_axis, ψ_boundary, R_axis, Z_axis,
-        ne, Te, ρp[end], nep[end], Tep[end], edge_decay, fi[35], fi[27], fi[25] / 100, fi[26] / 100)
+        ne, Te, ρp[end], nep[end], Tep[end], L, fi[35], fi[27], fi[25] / 100, fi[26] / 100)
 end
 
 """
@@ -232,4 +240,42 @@ function state(m::PlasmaModel, x::Real, y::Real, z::Real)
     B = B_cart(m, x, y, z)
     Bmag = sqrt(B[1]^2 + B[2]^2 + B[3]^2)
     return (; B, Bmag, ne=density_ψn(m, ψn), Te=temperature_ψn(m, ψn), ψn, R, Z=z)
+end
+
+"""
+    flux_contour(m::PlasmaModel, ρ; nθ=180)
+
+`R`, `Z` [m] of the flux surface `rho_pol = ρ` on `nθ` rays from the magnetic
+axis: along each ray the first crossing of `ψn = ρ²` outwards is bracketed on a
+400-point scan and bisected
+"""
+function flux_contour(m::PlasmaModel, ρ::Real; nθ::Int=180)
+    ψn_target = ρ^2
+    θs = range(0, 2π; length=nθ + 1)[1:nθ]
+    R = zeros(nθ)
+    Z = zeros(nθ)
+    for (i, θ) in enumerate(θs)
+        cθ, sθ = cos(θ), sin(θ)
+        f(r) = psi_norm(m, m.R_axis + r * cθ, m.Z_axis + r * sθ) - ψn_target
+        # search up to the edge of the equilibrium grid along this direction
+        rmax = min(cθ > 0 ? (m.R[end] - m.R_axis) / cθ : cθ < 0 ? (m.R[1] - m.R_axis) / cθ : Inf,
+                   sθ > 0 ? (m.Z[end] - m.Z_axis) / sθ : sθ < 0 ? (m.Z[1] - m.Z_axis) / sθ : Inf) * 0.999
+        lo, hi = 0.0, rmax
+        n = 400
+        for k in 1:n
+            r = rmax * k / n
+            if f(r) > 0
+                lo, hi = rmax * (k - 1) / n, r
+                break
+            end
+        end
+        for _ in 1:60
+            mid = 0.5 * (lo + hi)
+            f(mid) > 0 ? (hi = mid) : (lo = mid)
+        end
+        r = 0.5 * (lo + hi)
+        R[i] = m.R_axis + r * cθ
+        Z[i] = m.Z_axis + r * sθ
+    end
+    return R, Z
 end

@@ -166,11 +166,22 @@ import LinearAlgebra: eigvals, Hermitian, dot, norm, I
                 _, _, cg = cumulative(gb["t2ndata"], gb["volprof"])
                 @test c[end] ≈ out.rhoresult[14] rtol = 0.05
                 @test all(>=(0), dPdV)
+                # smooth profile: rms relative second difference (10-bin stride) over the bins
+                # above 30 % of the peak below 1 % (the Fortran's own is 0.3-0.7 %)
+                kpk = argmax(dPdV)
+                idx = [i for i in 11:TORBEAM.NPNT-10 if dPdV[i] > 0.3 * dPdV[kpk]]
+                rough = sqrt(sum(((dPdV[i-10] - 2dPdV[i] + dPdV[i+10]) / dPdV[i])^2 for i in idx) / length(idx))
+                @test rough < 0.01
+                # the maximum of dP/dV lies where the Fortran's is (no spike at the axis)
+                gdPdV = gb["t2ndata"][TORBEAM.NPNT+1:2TORBEAM.NPNT]
+                @test abs(ρ[kpk] - ρ[argmax(gdPdV)]) < 0.04
                 quantile(c, f) = ρ[findfirst(>=(f * c[end]), c)]
                 median(c) = quantile(c, 0.5)
                 @test abs(median(c) - median(cg)) < 0.02
-                # 16-84 % width within 40 % (ITER within 10 %, DIII-D 20-30 % wider, pol66 +33 %)
-                @test quantile(c, 0.84) - quantile(c, 0.16) ≈ quantile(cg, 0.84) - quantile(cg, 0.16) rtol = 0.4
+                # 16-84 % width within 15 % and peak within 20 % (both within 10 % on all goldens
+                # since the edge density lost its kink, see `PlasmaModel`)
+                @test quantile(c, 0.84) - quantile(c, 0.16) ≈ quantile(cg, 0.84) - quantile(cg, 0.16) rtol = 0.15
+                @test maximum(dPdV) ≈ maximum(gdPdV) rtol = 0.2
                 # total absorbed power within 3 % (the DIII-D O2 case: 1.27 vs 1.25 MW)
                 @test out.rhoresult[14] ≈ gb["rhoresult"][14] rtol = 0.03
                 @info "$case $(gb["name"]): P_abs $(round(out.rhoresult[14]; digits=3)) vs $(round(gb["rhoresult"][14]; digits=3)) MW, median rho $(round(median(c); digits=3)) vs $(round(median(cg); digits=3)), (R,Z) of max ($(round(out.rhoresult[2]; digits=1)), $(round(out.rhoresult[3]; digits=1))) vs ($(round(gb["rhoresult"][2]; digits=1)), $(round(gb["rhoresult"][3]; digits=1))) cm"
