@@ -58,6 +58,14 @@ end
             end
         end
         @test 0.05 < -real(1 / complex(-1 / l.Rh, 2 / (k0 * l.wh^2))) < 0.1   # waist ~7 cm ahead
+        # the ABCD propagation of a finite-difference ray family reproduces the same law
+        for s in (0.3, 1.0)
+            a = TORBEAM.abcd_widths(b, m, s)
+            for (w, R, w_s) in ((l.wh, l.Rh, a.wh), (l.wv, l.Rv, a.wv))
+                q = 1 / complex(-1 / R, 2 / (k0 * w^2))
+                @test w_s ≈ sqrt(-2 * imag(q) / k0) * sqrt(1 + ((s + real(q)) / -imag(q))^2) rtol = 1e-5
+            end
+        end
     end
 
     for case in [splitext(f)[1] for f in readdir(joinpath(@__DIR__, "goldens")) if endswith(f, ".json")]
@@ -100,6 +108,14 @@ end
                     tol = frac < 0.9 ? (case == "D3D" ? 0.06 : 0.03) : 0.08
                     @test bw.wh ≈ g.wh[i] rtol = (O2 && case == "D3D" ? 0.2 : tol)
                     @test bw.wv ≈ g.wv[i] rtol = tol
+                    # the beam matrix against the ABCD propagation of a finite-difference ray
+                    # family (`abcd_widths`: first derivatives of H only, no Riccati integration,
+                    # includes diffraction): the same widths to 1 %, and the eikonal constraint
+                    # Re M ∂H/∂N = -∂H/∂x holds along the ray
+                    a = TORBEAM.abcd_widths(b, m, g.s[i])
+                    @test a.wh ≈ bw.wh rtol = 0.01
+                    @test a.wv ≈ bw.wv rtol = 0.01
+                    @test a.residual < 1e-3
                 end
             end
         end

@@ -197,6 +197,96 @@ Power [W] left in the beam at arclength `s`
 power(b::BeamSolution, s::Real) = b.launch.power * exp(-b.sol(s)[19])
 
 """
+    ray_rhs!(du, u, tracer::BeamTracer, s)
+
+Ray equations only (first derivatives of H, no Hessian): the finite-difference ray
+family of `abcd_beam_matrix`
+"""
+function ray_rhs!(du, u, tracer::BeamTracer, s)
+    g = ForwardDiff.gradient(v -> dispersion(tracer.model, tracer.wave, v), u)
+    vnorm = norm(@view g[4:6])
+    du[1:3] = g[4:6] / vnorm
+    du[4:6] = -g[1:3] / vnorm
+    return du
+end
+
+"""
+    trace_ray(m::PlasmaModel, wave::WaveParams, x0, N0; smax, reltol=1e-10, abstol=1e-10)
+
+Dense solution of the ray equations from `(x0, N0)` over `smax` of arclength
+(terminated at the edge of the equilibrium grid)
+"""
+function trace_ray(m::PlasmaModel, wave::WaveParams, x0::AbstractVector, N0::AbstractVector; smax::Real, reltol::Float64=1e-10, abstol::Float64=1e-10)
+    tracer = BeamTracer(m, wave; nmax=0)
+    grid_cb = DiscreteCallback((u, s, integ) -> begin
+            R = hypot(u[1], u[2])
+            !(m.R[1] <= R <= m.R[end] && m.Z[1] <= u[3] <= m.Z[end])
+        end,
+        integ -> terminate!(integ))
+    prob = ODEProblem(ray_rhs!, vcat(Float64.(x0), Float64.(N0)), (0.0, float(smax)), tracer)
+    return solve(prob, Tsit5(); reltol, abstol, callback=grid_cb, dtmax=0.01)
+end
+
+"""
+    abcd_beam_matrix(m::PlasmaModel, wave::WaveParams, x0, N0, M0, s; δx=1e-3, δN=1e-3)
+
+Beam matrix at arclength `s` from the ABCD law `M = (C + D M0)(A + B M0)⁻¹`, with
+`[A B; C D] = ∂(x, N)/∂(x0, N0)` the Jacobian of the ray flow at equal arclength,
+by central differences of twelve rays (`trace_ray`). It uses only the first
+derivatives of H and no Riccati integration, so it is an independent check of
+`trace_beam`'s beam matrix; the law holds for the complex `M0` of a Gaussian beam
+(the ray family through complex initial data is the analytic continuation of the
+real one), so it includes diffraction. Equal arclength is a valid cross-section of
+the ray family because the eikonal's Lagrangian manifold is invariant under the
+flow. Returns `(M, x, N)` at `s` on the central ray.
+"""
+function abcd_beam_matrix(m::PlasmaModel, wave::WaveParams, x0::AbstractVector, N0::AbstractVector, M0::AbstractMatrix, s::Real; δx::Float64=1e-3, δN::Float64=1e-3)
+    at(x, N) = trace_ray(m, wave, x, N; smax=s)(s)
+    J = zeros(6, 6)
+    for j in 1:3
+        e = zeros(3)
+        e[j] = 1.0
+        J[:, j] = (at(x0 + δx * e, N0) - at(x0 - δx * e, N0)) / (2δx)
+        J[:, 3+j] = (at(x0, N0 + δN * e) - at(x0, N0 - δN * e)) / (2δN)
+    end
+    A = J[1:3, 1:3]
+    B = J[1:3, 4:6]
+    C = J[4:6, 1:3]
+    D = J[4:6, 4:6]
+    M = (C + D * M0) / (A + B * M0)
+    uc = at(x0, N0)
+    return M, uc[1:3], uc[4:6]
+end
+
+"""
+    abcd_widths(b::BeamSolution, m::PlasmaModel, s; δx=1e-3, δN=1e-3)
+
+The 1/e widths `wh`, `wv`, `wp` (as `beam_widths`) at arclength `s` from
+`abcd_beam_matrix` started at the launch, and the residual of the eikonal constraint
+`Re M ∂H/∂N = -∂H/∂x` there, relative to `|Re M| |∂H/∂N| + |∂H/∂x|`
+"""
+function abcd_widths(b::BeamSolution, m::PlasmaModel, s::Real; δx::Float64=1e-3, δN::Float64=1e-3)
+    l = b.launch
+    M0 = unpack_M(initial_state(l))
+    M, x, N = abcd_beam_matrix(m, l.wave, l.x0, l.N0, M0, s; δx, δN)
+    k0 = l.wave.k0
+    v = b.sol(s, Val{1})[1:3]
+    v ./= norm(v)
+    eh = cross([0.0, 0.0, 1.0], v)
+    eh ./= norm(eh)
+    ev = cross(v, eh)
+    R = hypot(x[1], x[2])
+    eR = [x[1] / R, x[2] / R, 0.0]
+    ep = [0.0, 0.0, 1.0] * dot(v, eR) - eR * v[3]
+    ep ./= norm(ep)
+    Φ = imag(M)
+    width(e) = sqrt(2 / (k0 * dot(e, Φ * e)))
+    g = ForwardDiff.gradient(u -> dispersion(m, l.wave, u), vcat(x, N))
+    residual = norm(real(M) * g[4:6] + g[1:3]) / (norm(real(M)) * norm(g[4:6]) + norm(g[1:3]))
+    return (; wh=width(eh), wv=width(ev), wp=width(ep), residual, x)
+end
+
+"""
     beam_widths(b::BeamSolution, s; perp=:v)
 
 Beam cross-section at arclength `s`: central ray position `x` [m] and the 1/e

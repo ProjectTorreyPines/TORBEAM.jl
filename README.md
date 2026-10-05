@@ -86,7 +86,11 @@ path (a kink of the density at the separatrix used to widen the poloidal beam
 width by 10–20 %: a kink is a delta function in the second derivatives of the
 dispersion function, which the beam-matrix integration steps over while the
 rays feel it; the density is now continued with its own slope beyond the last
-profile point). Known differences left: the driven current depends on where on the flux
+profile point). The beam matrix is checked on every golden beam against the
+ABCD propagation of a finite-difference ray family (`abcd_widths`: first
+derivatives of the dispersion function only, no Riccati integration, valid for
+the complex beam matrix and hence including diffraction): the two agree to
+0.1 %. Known differences left: the driven current depends on where on the flux
 surface the power is absorbed in a way the two codes do not share. With
 `ncdroutine=1` on both sides, ITER frequency and steering scans that place
 the absorption at sixteen points of the poloidal cross-section give
@@ -109,10 +113,11 @@ same sweep. Also open: the DIII-D O2 beam's horizontal width. The Fortran's
 left/right rays for this beam (O-mode, 15° toroidal steering) are 10 % wider
 than ours at mid-path and 18 % at the end, but they widen further when the
 density is halved (11.4 vs 7.8 cm) and cross each other when it is quartered,
-while our width tends smoothly to the vacuum value; the X-mode beam with the
-same launch geometry and the O-mode beam without toroidal steering agree to
-5 %, and the O2 deposition widths agree to 1 %. Treated as a peculiarity of
-the Fortran's stored peripheral rays for that beam.
+while our width tends smoothly to the vacuum value and equals the
+diffraction-including ABCD reference to 0.1 % at every density; the X-mode
+beam with the same launch geometry and the O-mode beam without toroidal
+steering agree to 5 %, and the O2 deposition widths agree to 1 %. Treated as
+a peculiarity of the Fortran's stored peripheral rays for that beam.
 
 The run is split into three steps that a backend plugs into:
 
