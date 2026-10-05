@@ -1,0 +1,38 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: ["master"]
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1.x"]
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@latest
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v2
+      - name: Add the FuseRegistry
+        run: |
+          julia -e 'using Pkg; Pkg.Registry.add(RegistrySpec(url="https://github.com/ProjectTorreyPines/FuseRegistry.jl.git")); Pkg.Registry.add("General")'
+      - uses: julia-actions/julia-buildpkg@v1
+      # TORBEAM_DIR is unset on the runner, so this is the pure-Julia suite:
+      # the Fortran regression tests are skipped and the backend is checked
+      # against the stored goldens.
+      - uses: julia-actions/julia-runtest@v1

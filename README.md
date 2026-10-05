@@ -126,9 +126,12 @@ The run is split into three steps that a backend plugs into:
 
 `test/data/<case>.json` are trimmed `dd`s (equilibrium, core profiles, several EC
 beam variants) and `test/goldens/<case>.json` the raw `BeamOutputs` the Fortran
-library produced for them. `Pkg.test()` always checks the Julia-side input
-assembly against the goldens, and additionally the Fortran backend when
-`TORBEAM_DIR` points at the library (on omega: `module load torbeam`).
+library produced for them. `Pkg.test()` checks the Julia-side input assembly
+and the Julia backend (model, beam tracing, absorption, current drive) against
+the goldens and against the analytic references, and additionally the Fortran
+backend when `TORBEAM_DIR` points at the library (on omega: `module load torbeam`).
+The Fortran-free suite runs in CI on every pull request (`.github/workflows/runtests.yml`),
+about 3300 tests in 1–1.5 h.
 
 To regenerate the goldens (needs FUSE, run on omega):
 
