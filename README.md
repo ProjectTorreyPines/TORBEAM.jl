@@ -86,11 +86,21 @@ path (a kink of the density at the separatrix used to widen the poloidal beam
 width by 10–20 %: a kink is a delta function in the second derivatives of the
 dispersion function, which the beam-matrix integration steps over while the
 rays feel it; the density is now continued with its own slope beyond the last
-profile point). Known differences left on DIII-D: X2 currents +10–13 % (the
-local efficiency j/(dP/dV) is 7–15 % above the Fortran's at the same ρ, under
-investigation), the near-cancelling near-perpendicular currents ×2–3, the
-second-harmonic O-mode current +34 % and its horizontal beam width 10–18 %
-narrower.
+profile point). Known differences left: the driven current depends on where on the flux
+surface the power is absorbed in a way the two codes do not share. With
+`ncdroutine=1` on both sides, an ITER frequency sweep that moves the absorption
+from the outboard edge through the axis to the inboard edge gives Julia/Fortran
+current ratios of 0.99 (ρ = 0.91 outboard), 0.96, 0.99, 1.03, 1.04 (axis), 1.12
+(ρ = 0.70 inboard) and 1.28 (ρ = 0.83 inboard); the ratio is flat under Te,
+Zeff, density and N∥ changes, and the momentum-conservation factors of the two
+codes agree to 2–5 % except at the outboard edge (0.46 vs 0.56). Every DIII-D
+golden beam absorbs inboard of the axis, hence its X2 currents +11–12 %, its
+near-cancelling near-perpendicular currents ×2–3 and the O2 current +34 %;
+the exact solvers (`ncdroutine` 3, 4) sit where the Lin-Liu model sits. Not
+explained by the field used in the pitch-angle mapping (local, ⟨B⟩, B_min or
+B_max) nor by Lin-Liu's interpolated H(λ) (Appendix A), both tested. Also
+open: the DIII-D O2 beam's horizontal width is 10–18 % narrower than the
+Fortran's peripheral rays.
 
 The run is split into three steps that a backend plugs into:
 
