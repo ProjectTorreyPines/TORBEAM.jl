@@ -70,7 +70,7 @@ setting by setting, and the Julia backend adds higher-fidelity options on top:
 |---|---|---|---|
 | `ncdroutine` | 1 | Lin-Liu et al. (2003): separable response χ = sgn(u∥) F(u) H(λ), slowing-down kept to its l = 1 moment (circulating fraction f_c), relativistic high-speed limit | ITER within 2 % (one beam 5 %), DIII-D X2 +9–13 %, near-perpendicular launches (near-cancelling currents) ×1.7–2.2 |
 | | 2 (default) | the same with momentum conservation: the variational Spitzer function of Romé et al. (1998) with the trapped-particle momentum sink, as the non-relativistic enhancement over the high-speed limit (`variational_spitzer`) | ITER within 2.5 % (one beam 5 %), DIII-D X2 +8–12 %; the enhancement itself matches to 1 % on both |
-| | 3 | exact 2-D (u, λ) solution of the bounce-averaged adjoint equation with the same relativistic high-velocity operator | validated against the Lorentz-gas conductivity 1 − f_t (exact) and the separable model in the uniform limit |
+| | 3 | exact 2-D (u, λ) solution of the bounce-averaged adjoint equation with the same relativistic high-velocity operator | verified against the Lorentz-gas conductivity 1 − f_t (exact) and the separable model in the uniform limit |
 | | 4 | full linearized collision operator (exact thermal rates, energy diffusion, e–e field term, relativistic detailed balance) in the real trapped geometry | reproduces the Spitzer–Härm conductivity ratios and the neoclassical conductivity of Sauter et al. (1999) within a few %; 5–20 % below the Fortran's momentum-conserving currents |
 | `nabsroutine` | 1 (default) | warm (relativistic Hermitian) N⊥ and polarization in the resonant layer, absorption from the complex root of the full relativistic dispersion relation, α = 2k₀ Im N⊥ (x̂·v̂) (Farina's WARMDISP route) | absorbed powers within 1 % (DIII-D O2 1.27 vs 1.25 MW), deposition medians to ≤ 0.005 on both machines |
 | | 2 | the same N⊥ and polarization with the weak-damping absorption α = 2k₀κ, κ = −(e*ε^a e)/(v̂·∂λ/∂N) | 2–4× cheaper; identical on ITER, DIII-D O2 absorbs 12 % too much |
@@ -148,7 +148,7 @@ published descriptions below and from first principles, and the Fortran source
 was not consulted (the library is used only as a black box for the golden
 comparisons). Where the backend offers the same reduced model as the Fortran
 it follows the paper the Fortran cites; the higher-fidelity options are
-validated against the classical results listed last.
+verified against the classical results listed last.
 
 Beam tracing and the TORBEAM models
 
@@ -192,9 +192,9 @@ Current drive
   momentum-conserving and the exact bounce-averaged solutions, and the
   toroidal-current conventions (Appendix).
 - L. Spitzer and R. Härm, Phys. Rev. 89 (1953) 977 — conductivity ratios
-  γ_E(Z) used to validate the uniform-field solver.
+  γ_E(Z) used to verify the uniform-field solver.
 - O. Sauter, C. Angioni, Y. R. Lin-Liu, Phys. Plasmas 6 (1999) 2834 — the
-  collisionless neoclassical conductivity used to validate the full-operator
+  collisionless neoclassical conductivity used to verify the full-operator
   solver in the real trapped geometry.
 
 ## Usage instructions for Omega

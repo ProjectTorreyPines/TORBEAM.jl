@@ -110,7 +110,7 @@ for case in cases
     instead of the vertical plane. ncdroutine=3 solves the bounce-averaged adjoint equation
     exactly in (u, λ) with the high-velocity operator of the Lin-Liu model and no momentum
     conservation, so it is compared with the Fortran's ncdroutine=1 current. ncdroutine=4 adds
-    the thermal collision rates, energy diffusion and the e-e field term (validated against the
+    the thermal collision rates, energy diffusion and the e-e field term (verified against the
     Spitzer-Härm and Sauter conductivities) and is compared with the Fortran's momentum-
     conserving ncdroutine=2. The README's switch table lists the typical differences.)
     """)
