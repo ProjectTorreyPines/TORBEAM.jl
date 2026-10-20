@@ -69,7 +69,9 @@ now `1e6 * rhoresult[14]` W and `1e3 * rhoresult[13]` A (1-based).
 `test/data/<case>.json` are trimmed `dd`s (equilibrium, core profiles, six EC beam
 variants each for DIII-D 110 GHz X2/O2 and ITER 138 GHz O1) and `test/goldens/<case>.json`
 the raw `BeamOutputs` the Fortran library produced for them, rounded to 10 significant
-digits, with the wall time of each `beam` call.
+digits, with the wall time of each `beam` call. The goldens are computed outputs only:
+no TORBEAM source, binary, input file or documentation is distributed with this package,
+and the library is reached at run time through `TORBEAM_DIR` alone.
 
 `Pkg.test()` always checks the Julia-side input assembly against the goldens. When
 `TORBEAM_DIR` points at the library it also checks `run_beam` (`rtol = 1e-6`) and the
